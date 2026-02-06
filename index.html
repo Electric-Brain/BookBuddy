@@ -1,0 +1,695 @@
+// ========================== WEB SERVER SETUP ==========================
+void setupWebServer() {
+  if (!wifiConnected) return;
+  
+  // Main dashboard page
+  server.on("/", HTTP_GET, handleRoot);
+  
+  // API endpoint for live data
+  server.on("/api/status", HTTP_GET, handleAPIStatus);
+  
+  // API endpoint to sync RTC with internet time
+  server.on("/api/synctime", HTTP_POST, handleSyncTime);
+  
+  // CORS preflight
+  server.on("/api/status", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.send(204);
+  });
+  
+  server.on("/api/synctime", HTTP_OPTIONS, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.send(204);
+  });
+  
+  server.begin();
+  Serial.println("Web server started on port 80");
+  Serial.print("Dashboard: http://");
+  Serial.println(WiFi.localIP());
+}
+
+// ========================== API: STATUS JSON ==========================
+void handleAPIStatus() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  
+  String json = "{";
+  json += "\"status\":\"live\",";
+  json += "\"uptime\":" + String(millis() / 1000) + ",";
+  json += "\"emotion\":\"" + getEmotionName() + "\",";
+  json += "\"booksPlaced\":" + String(currentBookCount) + ",";
+  
+  // RTC Time
+  if (rtcReady) {
+    DateTime now = rtc.now();
+    char timeBuf[30];
+    sprintf(timeBuf, "%04d-%02d-%02dT%02d:%02d:%02d", 
+            now.year(), now.month(), now.day(),
+            now.hour(), now.minute(), now.second());
+    json += "\"time\":\"" + String(timeBuf) + "\",";
+  } else {
+    json += "\"time\":\"N/A\",";
+  }
+  
+  // Books array
+  json += "\"books\":[";
+  for (int i = 0; i < NUM_BOOKS; i++) {
+    json += "{";
+    json += "\"name\":\"" + String(BOOK_NAMES[i]) + "\",";
+    json += "\"present\":" + String(books[i].present ? "true" : "false") + ",";
+    json += "\"totalSeconds\":" + String(getBookTotalSeconds(i));
+    json += "}";
+    if (i < NUM_BOOKS - 1) json += ",";
+  }
+  json += "]";
+  
+  // Total study time
+  uint32_t totalSecs = 0;
+  for (int i = 0; i < NUM_BOOKS; i++) {
+    totalSecs += getBookTotalSeconds(i);
+  }
+  json += ",\"totalStudySeconds\":" + String(totalSecs);
+  
+  json += "}";
+  
+  server.send(200, "application/json", json);
+}
+
+// ========================== API: SYNC TIME ==========================
+void handleSyncTime() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  
+  if (!rtcReady) {
+    server.send(500, "application/json", "{\"error\":\"RTC not available\"}");
+    return;
+  }
+  
+  // Expect JSON body: {"epoch": 1234567890}
+  if (server.hasArg("plain")) {
+    String body = server.arg("plain");
+    
+    // Simple parsing - find epoch value
+    int idx = body.indexOf("\"epoch\":");
+    if (idx >= 0) {
+      String epochStr = body.substring(idx + 8);
+      epochStr.trim();
+      // Remove any trailing characters
+      int endIdx = epochStr.indexOf('}');
+      if (endIdx >= 0) epochStr = epochStr.substring(0, endIdx);
+      epochStr.trim();
+      
+      uint32_t epoch = epochStr.toInt();
+      if (epoch > 1000000000) {
+        rtc.adjust(DateTime(epoch));
+        
+        DateTime now = rtc.now();
+        char timeBuf[30];
+        sprintf(timeBuf, "%02d:%02d:%02d", now.hour(), now.minute(), now.second());
+        
+        server.send(200, "application/json", 
+                    "{\"success\":true,\"newTime\":\"" + String(timeBuf) + "\"}");
+        
+        Serial.print("RTC synced to: ");
+        Serial.println(timeBuf);
+        return;
+      }
+    }
+  }
+  
+  server.send(400, "application/json", "{\"error\":\"Invalid request. Send {epoch: unix_timestamp}\"}");
+}
+
+// ========================== EMOTION NAME HELPER ==========================
+String getEmotionName() {
+  switch (currentEmotion) {
+    case EMOTION_NEUTRAL:    return "Neutral";
+    case EMOTION_CALM:       return "Calm";
+    case EMOTION_HAPPY:      return "Happy";
+    case EMOTION_PROUD:      return "Proud";
+    case EMOTION_VERY_PROUD: return "Very Proud";
+    case EMOTION_SAD:        return "Sad";
+    case EMOTION_VERY_SAD:   return "Very Sad";
+    case EMOTION_REMINDER:   return "Reminder";
+    default:                 return "Unknown";
+  }
+}
+
+// ========================== WEB DASHBOARD HTML ==========================
+void handleRoot() {
+  String html = R"rawliteral(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BookBuddy Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    color: #fff;
+    min-height: 100vh;
+  }
+  
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 30px 0;
+    border-bottom: 2px solid rgba(255,255,255,0.1);
+    margin-bottom: 30px;
+  }
+  
+  .header h1 {
+    font-size: 3em;
+    background: linear-gradient(to right, #f7971e, #ffd200);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 10px;
+  }
+  
+  .header p {
+    font-size: 1.2em;
+    color: #aaa;
+  }
+  
+  .header .buddy-face {
+    font-size: 4em;
+    margin: 15px 0;
+  }
+  
+  /* Status Badge */
+  .status-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 30px;
+  }
+  
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 25px;
+    border-radius: 50px;
+    font-size: 1.1em;
+    font-weight: bold;
+  }
+  
+  .status-badge.live {
+    background: rgba(0, 255, 100, 0.15);
+    border: 2px solid #00ff64;
+    color: #00ff64;
+  }
+  
+  .status-badge.offline {
+    background: rgba(255, 50, 50, 0.15);
+    border: 2px solid #ff3232;
+    color: #ff3232;
+  }
+  
+  .status-badge.connecting {
+    background: rgba(255, 200, 0, 0.15);
+    border: 2px solid #ffc800;
+    color: #ffc800;
+  }
+  
+  .pulse-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite;
+  }
+  
+  .pulse-dot.green { background: #00ff64; }
+  .pulse-dot.red { background: #ff3232; }
+  .pulse-dot.yellow { background: #ffc800; }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+  
+  /* Cards */
+  .card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 25px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(10px);
+  }
+  
+  .card h2 {
+    font-size: 1.5em;
+    margin-bottom: 20px;
+    color: #ffd200;
+  }
+  
+  /* Info Grid */
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+  }
+  
+  .info-item {
+    background: rgba(255,255,255,0.05);
+    border-radius: 15px;
+    padding: 20px;
+    text-align: center;
+  }
+  
+  .info-item .label {
+    font-size: 0.9em;
+    color: #888;
+    margin-bottom: 8px;
+  }
+  
+  .info-item .value {
+    font-size: 2em;
+    font-weight: bold;
+    color: #ffd200;
+  }
+  
+  .info-item .value.small {
+    font-size: 1.3em;
+  }
+  
+  /* Books Table */
+  .books-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .books-table th, .books-table td {
+    padding: 15px 20px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  
+  .books-table th {
+    color: #888;
+    font-size: 0.9em;
+    text-transform: uppercase;
+  }
+  
+  .books-table td {
+    font-size: 1.1em;
+  }
+  
+  .books-table .book-name {
+    font-weight: bold;
+    font-size: 1.2em;
+  }
+  
+  .status-dot {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    margin-right: 8px;
+  }
+  
+  .status-dot.on { background: #00ff64; box-shadow: 0 0 8px #00ff64; }
+  .status-dot.off { background: #555; }
+  
+  /* Buttons */
+  .btn {
+    display: inline-block;
+    padding: 12px 30px;
+    border-radius: 50px;
+    border: none;
+    font-size: 1em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-decoration: none;
+  }
+  
+  .btn-primary {
+    background: linear-gradient(to right, #f7971e, #ffd200);
+    color: #000;
+  }
+  
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(255, 210, 0, 0.3);
+  }
+  
+  .btn-secondary {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  
+  .btn-secondary:hover {
+    background: rgba(255,255,255,0.2);
+  }
+  
+  .btn-chat {
+    background: linear-gradient(to right, #00b4db, #0083b0);
+    color: #fff;
+    font-size: 1.1em;
+    padding: 15px 40px;
+  }
+  
+  .btn-chat:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(0, 180, 219, 0.3);
+  }
+  
+  /* Actions */
+  .actions {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 15px;
+  }
+  
+  /* Emotion display */
+  .emotion-display {
+    text-align: center;
+    padding: 15px;
+  }
+  
+  .emotion-face {
+    font-size: 3em;
+    margin-bottom: 10px;
+  }
+  
+  .emotion-label {
+    font-size: 1.3em;
+    color: #ffd200;
+    font-weight: bold;
+  }
+  
+  /* About section */
+  .about-section {
+    text-align: center;
+    padding: 20px;
+  }
+  
+  .about-section p {
+    color: #aaa;
+    line-height: 1.8;
+    margin-bottom: 10px;
+  }
+  
+  /* Sync result */
+  #syncResult {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 10px;
+    display: none;
+  }
+  
+  #syncResult.success {
+    background: rgba(0, 255, 100, 0.1);
+    color: #00ff64;
+    display: block;
+  }
+  
+  #syncResult.error {
+    background: rgba(255, 50, 50, 0.1);
+    color: #ff3232;
+    display: block;
+  }
+  
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 30px;
+    color: #555;
+    font-size: 0.9em;
+  }
+  
+  /* Responsive */
+  @media (max-width: 600px) {
+    .header h1 { font-size: 2em; }
+    .info-item .value { font-size: 1.5em; }
+    .books-table th, .books-table td { padding: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  
+  <!-- Header -->
+  <div class="header">
+    <div class="buddy-face">🐶</div>
+    <h1>📚 BookBuddy</h1>
+    <p>Your Smart Study Partner</p>
+  </div>
+  
+  <!-- Connection Status -->
+  <div class="status-bar">
+    <div id="statusBadge" class="status-badge connecting">
+      <div id="statusDot" class="pulse-dot yellow"></div>
+      <span id="statusText">Connecting to ESP32...</span>
+    </div>
+  </div>
+  
+  <!-- Quick Stats -->
+  <div class="card">
+    <h2>📊 Live Dashboard</h2>
+    <div class="info-grid">
+      <div class="info-item">
+        <div class="label">Books Placed</div>
+        <div class="value" id="bookCount">--</div>
+      </div>
+      <div class="info-item">
+        <div class="label">Current Mood</div>
+        <div class="emotion-display">
+          <div class="emotion-face" id="emotionFace">😊</div>
+          <div class="emotion-label" id="emotionLabel">--</div>
+        </div>
+      </div>
+      <div class="info-item">
+        <div class="label">RTC Time</div>
+        <div class="value small" id="rtcTime">--:--:--</div>
+      </div>
+      <div class="info-item">
+        <div class="label">Total Study Time</div>
+        <div class="value small" id="totalTime">--</div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Books Detail -->
+  <div class="card">
+    <h2>📖 Subject Tracker</h2>
+    <table class="books-table">
+      <thead>
+        <tr>
+          <th>Subject</th>
+          <th>Status</th>
+          <th>Time on Rack</th>
+        </tr>
+      </thead>
+      <tbody id="booksTableBody">
+        <tr><td colspan="3" style="text-align:center; color:#888;">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <!-- Actions -->
+  <div class="card">
+    <h2>⚙️ Controls</h2>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="syncTime()">🕐 Sync RTC Time</button>
+      <button class="btn btn-secondary" onclick="fetchData()">🔄 Refresh Data</button>
+    </div>
+    <div id="syncResult"></div>
+  </div>
+  
+  <!-- Chat with BookBuddy -->
+  <div class="card">
+    <h2>💬 Chat with BookBuddy</h2>
+    <div class="about-section">
+      <p>Need study help? Chat with BookBuddy's AI assistant!</p>
+      <p>Powered by ChatGPT - your personal study companion.</p>
+      <br>
+      <a class="btn btn-chat" href="https://chat.openai.com/?q=Hey!%20I%27m%20BookBuddy%2C%20your%20study%20partner!%20What%27s%20on%20your%20mind%20today%3F%20I%27m%20here%20to%20help%20you%20with%20English%2C%20Hindi%2C%20Maths%2C%20Marathi%2C%20and%20Science.%20Let%27s%20learn%20together!%20%F0%9F%93%9A" target="_blank">
+        🤖 Open BookBuddy Chat
+      </a>
+    </div>
+  </div>
+  
+  <!-- About BookBuddy -->
+  <div class="card">
+    <h2>ℹ️ About BookBuddy</h2>
+    <div class="about-section">
+      <p>📚 <strong>BookBuddy</strong> is your smart study companion that lives on your bookshelf!</p>
+      <p>🐶 It watches over your books with an adorable animated puppy face on its display.</p>
+      <p>😊 It gets happier when you place your study books on the rack.</p>
+      <p>😢 It gets sad when books are away for too long.</p>
+      <p>🔊 It talks to you with voice feedback for every interaction.</p>
+      <p>⏱️ It tracks your study time for each subject using a real-time clock.</p>
+      <p>📡 It connects to WiFi so you can monitor everything from this dashboard!</p>
+      <br>
+      <p style="color:#ffd200;"><strong>Subjects Tracked:</strong> English, Hindi, Maths, Marathi, Science</p>
+      <p style="color:#888;">Hardware: ESP32 + ILI9488 TFT + DS3231 RTC + DFPlayer Mini</p>
+    </div>
+  </div>
+  
+  <div class="footer">
+    <p>BookBuddy v2.0 &middot; Made with ❤️</p>
+  </div>
+  
+</div>
+
+<script>
+  const ESP32_URL = window.location.origin;
+  let isConnected = false;
+  let retryCount = 0;
+  
+  // Emotion to emoji mapping
+  const emotionEmojis = {
+    'Neutral': '😐',
+    'Calm': '😊',
+    'Happy': '😄',
+    'Proud': '🤩',
+    'Very Proud': '🥳',
+    'Sad': '😟',
+    'Very Sad': '😢',
+    'Reminder': '😰',
+    'Unknown': '❓'
+  };
+  
+  function formatDuration(totalSeconds) {
+    const hours = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = totalSeconds % 60;
+    
+    if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+  }
+  
+  function updateStatus(state, text) {
+    const badge = document.getElementById('statusBadge');
+    const dot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    
+    badge.className = 'status-badge ' + state;
+    dot.className = 'pulse-dot ' + (state === 'live' ? 'green' : state === 'offline' ? 'red' : 'yellow');
+    statusText.textContent = text;
+  }
+  
+  async function fetchData() {
+    try {
+      updateStatus('connecting', 'Connecting to ESP32...');
+      
+      const response = await fetch(ESP32_URL + '/api/status', {
+        signal: AbortSignal.timeout(5000)
+      });
+      
+      if (!response.ok) throw new Error('HTTP error');
+      
+      const data = await response.json();
+      
+      if (data.status === 'live') {
+        isConnected = true;
+        retryCount = 0;
+        updateStatus('live', 'BookBuddy is LIVE!');
+        
+        // Update book count
+        document.getElementById('bookCount').textContent = data.booksPlaced + ' / 5';
+        
+        // Update emotion
+        const emotion = data.emotion || 'Unknown';
+        document.getElementById('emotionFace').textContent = emotionEmojis[emotion] || '❓';
+        document.getElementById('emotionLabel').textContent = emotion;
+        
+        // Update time
+        if (data.time && data.time !== 'N/A') {
+          const timePart = data.time.split('T')[1] || data.time;
+          document.getElementById('rtcTime').textContent = timePart;
+        }
+        
+        // Update total time
+        document.getElementById('totalTime').textContent = formatDuration(data.totalStudySeconds || 0);
+        
+        // Update books table
+        let tableHTML = '';
+        data.books.forEach(book => {
+          const statusClass = book.present ? 'on' : 'off';
+          const statusLabel = book.present ? 'On Rack' : 'Removed';
+          tableHTML += `<tr>
+            <td class="book-name">${book.name}</td>
+            <td><span class="status-dot ${statusClass}"></span>${statusLabel}</td>
+            <td>${formatDuration(book.totalSeconds)}</td>
+          </tr>`;
+        });
+        document.getElementById('booksTableBody').innerHTML = tableHTML;
+      }
+      
+    } catch (error) {
+      retryCount++;
+      isConnected = false;
+      
+      if (retryCount < 3) {
+        updateStatus('connecting', 'Reconnecting... (' + retryCount + ')');
+      } else {
+        updateStatus('offline', 'ESP32 Offline - Check Connection');
+      }
+    }
+  }
+  
+  async function syncTime() {
+    const resultDiv = document.getElementById('syncResult');
+    
+    try {
+      const epoch = Math.floor(Date.now() / 1000);
+      
+      const response = await fetch(ESP32_URL + '/api/synctime', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ epoch: epoch })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        resultDiv.className = 'success';
+        resultDiv.textContent = '✅ RTC synced to: ' + data.newTime;
+        resultDiv.style.display = 'block';
+        setTimeout(() => fetchData(), 1000);
+      } else {
+        throw new Error(data.error || 'Sync failed');
+      }
+      
+    } catch (error) {
+      resultDiv.className = 'error';
+      resultDiv.textContent = '❌ Sync failed: ' + error.message;
+      resultDiv.style.display = 'block';
+    }
+    
+    setTimeout(() => { resultDiv.style.display = 'none'; }, 5000);
+  }
+  
+  // Auto-refresh every 3 seconds
+  fetchData();
+  setInterval(fetchData, 3000);
+</script>
+
+</body>
+</html>
+)rawliteral";
+  
+  server.send(200, "text/html", html);
+}
