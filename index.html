@@ -489,7 +489,7 @@
   }
   
   function connectWebSocket() {
-    if (!USE_WEBSOCKET || !ESP32_IP || ESP32_IP === 'YOUR_ESP32_IP_HERE') {
+    if (!USE_WEBSOCKET || !ESP32_IP || ESP32_IP === '10.152.138.159') {
       console.log('WebSocket disabled or IP not set');
       fetchData();
       setInterval(fetchData, 3000);
