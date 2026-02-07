@@ -1,853 +1,1489 @@
+```html
 <!DOCTYPE html>
 <html lang="en">
+<!--
+╔══════════════════════════════════════════════════════════════╗
+║                    BOOKBUDDY DASHBOARD                       ║
+║  IoT Study Companion for 9th Grade Students                  ║
+║                                                              ║
+║  SETUP:                                                      ║
+║  1. Open this file in Chrome/Edge browser                    ║
+║  2. Enter your ESP32 IP address and click Connect            ║
+║  3. Or click "Demo Mode" to test without hardware            ║
+║                                                              ║
+║  FEATURES:                                                   ║
+║  - Real-time WebSocket connection to ESP32                   ║
+║  - Voice & text AI chat via ChatGPT                          ║
+║  - 4 interactive charts (Bar, Line, Doughnut, Area)          ║
+║  - Study insights & recommendations                          ║
+║  - RTC time sync                                             ║
+║  - CSV data export                                           ║
+║  - Fully responsive design                                   ║
+║                                                              ║
+║  API ENDPOINTS (ESP32):                                      ║
+║  GET  /api/status    - Current device status JSON            ║
+║  POST /api/synctime  - Sync RTC with {epoch: timestamp}     ║
+║  WS   /ws            - WebSocket for live updates            ║
+║                                                              ║
+║  BROWSER: Chrome 90+ or Edge 90+ recommended                ║
+╚══════════════════════════════════════════════════════════════╝
+-->
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>📚 BookBuddy Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-  * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: 'Times New Roman', Times, serif;
-  }
-  
-  body {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-    color: #fff;
-    min-height: 100vh;
-    padding: 20px;
-  }
-  
-  .container {
-    max-width: 1400px;
-    margin: 0 auto;
-  }
-  
-  .header {
-    text-align: center;
-    padding: 30px 0;
-    border-bottom: 2px solid rgba(255,255,255,0.1);
-    margin-bottom: 30px;
-  }
-  
-  .header h1 {
-    font-size: 3em;
-    font-weight: bold;
-    background: linear-gradient(to right, #60a5fa, #3b82f6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    margin-bottom: 10px;
-  }
-  
-  .status-bar {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 15px;
-    margin: 20px 0;
-    flex-wrap: wrap;
-  }
-  
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 25px;
-    border-radius: 50px;
-    font-size: 1.1em;
-    font-weight: bold;
-    border: 2px solid;
-  }
-  
-  .status-badge.live {
-    background: rgba(34, 197, 94, 0.1);
-    border-color: #22c55e;
-    color: #22c55e;
-  }
-  
-  .status-badge.offline {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: #ef4444;
-    color: #ef4444;
-  }
-  
-  .pulse-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    animation: pulse 1.5s infinite;
-  }
-  
-  .pulse-dot.green { background: #22c55e; }
-  .pulse-dot.red { background: #ef4444; }
-  
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.6; transform: scale(0.9); }
-  }
-  
-  .connect-panel {
-    background: rgba(30, 41, 59, 0.5);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 20px;
-    padding: 25px;
-    margin-bottom: 30px;
-  }
-  
-  .input-group {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-bottom: 15px;
-  }
-  
-  .input-group input {
-    flex: 1;
-    min-width: 250px;
-    padding: 12px 20px;
-    background: rgba(15, 23, 42, 0.8);
-    border: 1px solid rgba(255,255,255,0.2);
-    border-radius: 12px;
-    color: #fff;
-    font-size: 1em;
-    font-family: 'Times New Roman', Times, serif;
-  }
-  
-  .input-group input::placeholder {
-    color: rgba(255,255,255,0.4);
-  }
-  
-  .btn {
-    padding: 12px 30px;
-    border: none;
-    border-radius: 12px;
-    font-size: 1em;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.3s;
-    font-family: 'Times New Roman', Times, serif;
-  }
-  
-  .btn-primary {
-    background: linear-gradient(to right, #3b82f6, #2563eb);
-    color: #fff;
-  }
-  
-  .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4);
-  }
-  
-  .btn-secondary {
-    background: linear-gradient(to right, #8b5cf6, #7c3aed);
-    color: #fff;
-  }
-  
-  .btn-secondary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(139, 92, 246, 0.4);
-  }
-  
-  .btn-success {
-    background: linear-gradient(to right, #10b981, #059669);
-    color: #fff;
-  }
-  
-  .btn-success:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(16, 185, 129, 0.4);
-  }
-  
-  .card {
-    background: rgba(30, 41, 59, 0.5);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 20px;
-    padding: 25px;
-    margin-bottom: 25px;
-  }
-  
-  .card h2 {
-    font-size: 1.5em;
-    font-weight: bold;
-    margin-bottom: 20px;
-    color: #60a5fa;
-  }
-  
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-    margin-bottom: 20px;
-  }
-  
-  .stat-box {
-    background: rgba(15, 23, 42, 0.6);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 15px;
-    padding: 20px;
-    text-align: center;
-  }
-  
-  .stat-box .label {
-    font-size: 0.9em;
-    color: rgba(255,255,255,0.6);
-    margin-bottom: 8px;
-  }
-  
-  .stat-box .value {
-    font-size: 2em;
-    font-weight: bold;
-    color: #fff;
-  }
-  
-  .chart-container {
-    position: relative;
-    height: 300px;
-    margin: 20px 0;
-  }
-  
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  
-  table th, table td {
-    padding: 15px;
-    text-align: left;
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-  }
-  
-  table th {
-    font-size: 1em;
-    font-weight: bold;
-    color: #60a5fa;
-  }
-  
-  table td {
-    font-size: 1.1em;
-  }
-  
-  .status-dot {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    margin-right: 8px;
-  }
-  
-  .status-dot.on {
-    background: #22c55e;
-    box-shadow: 0 0 8px #22c55e;
-  }
-  
-  .status-dot.off {
-    background: #64748b;
-  }
-  
-  .welcome {
-    text-align: center;
-    padding: 60px 20px;
-  }
-  
-  .welcome h2 {
-    font-size: 2.5em;
-    margin-bottom: 20px;
-  }
-  
-  .welcome p {
-    font-size: 1.2em;
-    color: rgba(255,255,255,0.7);
-    max-width: 600px;
-    margin: 0 auto 30px;
-  }
-  
-  #result {
-    margin-top: 15px;
-    padding: 12px;
-    border-radius: 12px;
-    display: none;
-    font-weight: bold;
-  }
-  
-  #result.success {
-    background: rgba(34, 197, 94, 0.1);
-    border: 2px solid #22c55e;
-    color: #22c55e;
-    display: block;
-  }
-  
-  #result.error {
-    background: rgba(239, 68, 68, 0.1);
-    border: 2px solid #ef4444;
-    color: #ef4444;
-    display: block;
-  }
-  
-  /* AI Chat Section */
-  .ai-chat-section {
-    background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
-    border: 2px solid rgba(16, 185, 129, 0.3);
-    border-radius: 20px;
-    padding: 30px;
-    text-align: center;
-  }
-  
-  .ai-chat-section h2 {
-    font-size: 2em;
-    margin-bottom: 15px;
-    color: #10b981;
-  }
-  
-  .ai-chat-section p {
-    font-size: 1.1em;
-    color: rgba(255,255,255,0.8);
-    margin-bottom: 25px;
-  }
-  
-  .chat-buttons {
-    display: flex;
-    gap: 15px;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-  
-  .btn-chat {
-    padding: 15px 40px;
-    font-size: 1.2em;
-    border-radius: 15px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  
-  .btn-voice {
-    background: linear-gradient(to right, #ec4899, #db2777);
-    color: #fff;
-  }
-  
-  .btn-voice:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 20px rgba(236, 72, 153, 0.4);
-  }
-  
-  .btn-text {
-    background: linear-gradient(to right, #10b981, #059669);
-    color: #fff;
-  }
-  
-  .btn-text:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 20px rgba(16, 185, 129, 0.4);
-  }
-  
-  .voice-status {
-    margin-top: 15px;
-    padding: 10px 20px;
-    background: rgba(236, 72, 153, 0.1);
-    border: 1px solid rgba(236, 72, 153, 0.3);
-    border-radius: 10px;
-    display: none;
-  }
-  
-  .voice-status.active {
-    display: block;
-  }
-  
-  .listening-animation {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    background: #ec4899;
-    border-radius: 50%;
-    animation: listening 1s infinite;
-  }
-  
-  @keyframes listening {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.5); opacity: 0.5; }
-  }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BookBuddy Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: rgba(30, 41, 59, 0.85);
+      --bg-card-hover: rgba(51, 65, 85, 0.9);
+      --primary: #3b82f6;
+      --primary-light: #60a5fa;
+      --success: #22c55e;
+      --success-dark: #10b981;
+      --warning: #fbbf24;
+      --error: #ef4444;
+      --purple: #a78bfa;
+      --pink: #f472b6;
+      --orange: #fb923c;
+      --text-primary: rgba(255, 255, 255, 0.95);
+      --text-secondary: rgba(255, 255, 255, 0.7);
+      --text-muted: rgba(255, 255, 255, 0.4);
+      --border: rgba(255, 255, 255, 0.1);
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      --transition: all 0.3s ease;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Times New Roman', Times, serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1a1a3e 40%, #0f172a 100%);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background:
+        radial-gradient(ellipse at 20% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 20%, rgba(167, 139, 250, 0.06) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 80%, rgba(34, 197, 94, 0.05) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Header */
+    .header {
+      text-align: center;
+      padding: 30px 0 20px;
+    }
+
+    .header h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: bold;
+      background: linear-gradient(135deg, var(--primary-light), var(--purple), var(--pink));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+      letter-spacing: 1px;
+    }
+
+    .header p {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+      transition: var(--transition);
+    }
+
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .card-title {
+      font-size: 1.3rem;
+      font-weight: bold;
+      margin-bottom: 16px;
+      color: var(--text-primary);
+    }
+
+    /* Connection Panel */
+    .connection-panel {
+      margin-bottom: 24px;
+    }
+
+    .connection-inner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .connection-inner label {
+      font-weight: bold;
+      font-size: 1rem;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .ip-input {
+      flex: 1;
+      min-width: 200px;
+      padding: 12px 16px;
+      border: 2px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(15, 23, 42, 0.6);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 1rem;
+      outline: none;
+      transition: var(--transition);
+    }
+
+    .ip-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: var(--transition);
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-connect {
+      background: linear-gradient(135deg, var(--primary), #2563eb);
+      color: white;
+    }
+
+    .btn-demo {
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: white;
+    }
+
+    .btn-sync {
+      background: linear-gradient(135deg, var(--success-dark), #059669);
+      color: white;
+    }
+
+    .btn-export {
+      background: linear-gradient(135deg, var(--orange), #ea580c);
+      color: white;
+    }
+
+    .btn-reset {
+      background: linear-gradient(135deg, var(--error), #dc2626);
+      color: white;
+    }
+
+    .btn-voice {
+      background: linear-gradient(135deg, var(--pink), #ec4899);
+      color: white;
+      padding: 15px 40px;
+      font-size: 1.1rem;
+    }
+
+    .btn-text {
+      background: linear-gradient(135deg, var(--success), var(--success-dark));
+      color: white;
+      padding: 15px 40px;
+      font-size: 1.1rem;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.9rem;
+      font-weight: bold;
+    }
+
+    .status-badge.offline {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--error);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .status-badge.connected {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    .status-badge.connecting {
+      background: rgba(251, 191, 36, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .status-dot.offline { background: var(--error); }
+    .status-dot.connected {
+      background: var(--success);
+      animation: pulse-dot 1.5s infinite;
+    }
+    .status-dot.connecting {
+      background: var(--warning);
+      animation: pulse-dot 0.8s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.3); }
+    }
+
+    /* AI Chat Section */
+    .ai-section {
+      margin-bottom: 24px;
+    }
+
+    .ai-section .card-title {
+      font-size: 1.5rem;
+      text-align: center;
+    }
+
+    .ai-description {
+      text-align: center;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+      font-size: 1.05rem;
+    }
+
+    .ai-buttons {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .listening-indicator {
+      display: none;
+      text-align: center;
+      margin-top: 16px;
+      padding: 16px;
+      border: 2px solid var(--pink);
+      border-radius: var(--radius-sm);
+      background: rgba(244, 114, 182, 0.08);
+      animation: listening-pulse 1.5s infinite;
+    }
+
+    .listening-indicator.active {
+      display: block;
+    }
+
+    @keyframes listening-pulse {
+      0%, 100% { border-color: var(--pink); }
+      50% { border-color: rgba(244, 114, 182, 0.3); }
+    }
+
+    .listening-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      background: var(--pink);
+      border-radius: 50%;
+      margin-right: 10px;
+      animation: pulse-dot 0.6s infinite;
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      text-align: center;
+      padding: 20px;
+    }
+
+    .stat-icon {
+      font-size: 2rem;
+      margin-bottom: 8px;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+
+    .stat-value.happy { color: var(--success); }
+    .stat-value.calm { color: var(--primary-light); }
+    .stat-value.sad { color: var(--error); }
+    .stat-value.proud { color: var(--warning); }
+    .stat-value.neutral { color: var(--text-secondary); }
+
+    .progress-bar-container {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--primary), var(--success));
+      transition: width 0.5s ease;
+    }
+
+    /* Charts Grid */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+
+    .chart-container {
+      position: relative;
+      height: 320px;
+    }
+
+    /* Subject Table */
+    .subject-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 1rem;
+    }
+
+    .subject-table th {
+      text-align: left;
+      padding: 14px 16px;
+      border-bottom: 2px solid var(--border);
+      color: var(--text-secondary);
+      font-weight: bold;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .subject-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      transition: var(--transition);
+    }
+
+    .subject-table tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .subject-table tr.active td {
+      background: rgba(34, 197, 94, 0.08);
+    }
+
+    .subject-table tr:hover td {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-indicator .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .status-indicator .dot.on { background: var(--success); box-shadow: 0 0 8px rgba(34, 197, 94, 0.5); }
+    .status-indicator .dot.off { background: var(--text-muted); }
+
+    /* Insights */
+    .insights-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .insights-list li {
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: var(--radius-sm);
+      border-left: 4px solid var(--primary);
+      font-size: 1rem;
+      color: var(--text-secondary);
+      transition: var(--transition);
+    }
+
+    .insights-list li:nth-child(2) { border-left-color: var(--success); }
+    .insights-list li:nth-child(3) { border-left-color: var(--purple); }
+    .insights-list li:nth-child(4) { border-left-color: var(--warning); }
+    .insights-list li:nth-child(5) { border-left-color: var(--pink); }
+
+    .insights-list li:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .insights-list li strong {
+      color: var(--text-primary);
+    }
+
+    /* Controls */
+    .controls-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    /* Notification */
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 16px 24px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+      z-index: 9999;
+      transform: translateX(120%);
+      transition: transform 0.4s ease;
+      max-width: 400px;
+      font-size: 1rem;
+    }
+
+    .notification.show {
+      transform: translateX(0);
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 30px 0;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      border-top: 1px solid var(--border);
+      margin-top: 30px;
+    }
+
+    /* Section Gap */
+    .section-gap {
+      margin-bottom: 24px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    /* Focus styles */
+    *:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .charts-grid {
+        grid-template-columns: 1fr;
+      }
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 12px;
+      }
+      .card {
+        padding: 16px;
+      }
+      .header h1 {
+        font-size: 1.8rem;
+      }
+      .connection-inner {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .ip-input {
+        min-width: unset;
+      }
+      .btn-voice, .btn-text {
+        padding: 14px 24px;
+        font-size: 1rem;
+        width: 100%;
+        justify-content: center;
+      }
+      .stats-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+      .controls-bar {
+        flex-direction: column;
+      }
+      .controls-bar .btn {
+        width: 100%;
+        justify-content: center;
+      }
+      .chart-container {
+        height: 260px;
+      }
+    }
+  </style>
 </head>
 <body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1>📚 BookBuddy Dashboard</h1>
+      <p>IoT Study Companion · Track · Learn · Grow</p>
+    </header>
 
-<div class="container">
-  
-  <div class="header">
-    <h1>📚 BOOKBUDDY DASHBOARD</h1>
-    <p style="font-size:1.2em; color: rgba(255,255,255,0.7);">Smart Study Partner - Real-time Monitoring</p>
-    <div class="status-bar">
-      <div id="statusBadge" class="status-badge offline">
-        <div id="statusDot" class="pulse-dot red"></div>
-        <span id="statusText">Not Connected</span>
+    <!-- Connection Panel -->
+    <section class="connection-panel card" aria-label="Device Connection">
+      <div class="connection-inner">
+        <label for="ipInput">🔌 ESP32 IP:</label>
+        <input
+          type="text"
+          id="ipInput"
+          class="ip-input"
+          placeholder="Enter ESP32 IP (e.g., 10.152.138.159)"
+          value="10.152.138.159"
+          aria-label="ESP32 IP Address"
+        >
+        <button class="btn btn-connect" onclick="connectDevice()" aria-label="Connect to device">
+          ⚡ Connect
+        </button>
+        <button class="btn btn-demo" onclick="startDemo()" aria-label="Start demo mode">
+          🎮 Demo Mode
+        </button>
+        <span id="statusBadge" class="status-badge offline" role="status" aria-live="polite">
+          <span class="status-dot offline" id="statusDot"></span>
+          <span id="statusText">Offline</span>
+        </span>
       </div>
-    </div>
-  </div>
-  
-  <!-- Connection Panel -->
-  <div class="connect-panel">
-    <h2 style="margin-bottom: 15px;">🔌 Connect to BookBuddy</h2>
-    <div class="input-group">
-      <input 
-        type="text" 
-        id="ipInput" 
-        placeholder="Enter ESP32 IP (e.g., 10.152.138.159)" 
-        value="10.152.138.159"
-      />
-      <button class="btn btn-primary" onclick="connectDevice()">Connect</button>
-      <button class="btn btn-secondary" onclick="startDemo()">Demo Mode</button>
-    </div>
-    <div id="result"></div>
-  </div>
-  
-  <!-- AI Chat Section -->
-  <div class="card ai-chat-section">
-    <h2>🤖 Ask BookBuddy AI Anything!</h2>
-    <p>Need help with English, Hindi, Maths, Marathi, or Science? BookBuddy AI is here to help you!</p>
-    <div class="chat-buttons">
-      <button class="btn btn-chat btn-voice" onclick="startVoiceChat()">
-        🎤 Talk to BookBuddy
-      </button>
-      <button class="btn btn-chat btn-text" onclick="startTextChat()">
-        💬 Chat with BookBuddy
-      </button>
-    </div>
-    <div id="voiceStatus" class="voice-status">
-      <span class="listening-animation"></span>
-      <span style="margin-left: 10px;">Listening... Speak now!</span>
-    </div>
-  </div>
-  
-  <!-- Dashboard (hidden initially) -->
-  <div id="dashboard" style="display: none;">
-    
-    <!-- Quick Stats -->
-    <div class="card">
-      <h2>📊 LIVE STATUS</h2>
-      <div class="stats-grid">
-        <div class="stat-box">
-          <div class="label">Books Placed</div>
-          <div class="value" id="bookCount">0/5</div>
-        </div>
-        <div class="stat-box">
-          <div class="label">Current Emotion</div>
-          <div class="value" id="emotion">Calm</div>
-        </div>
-        <div class="stat-box">
-          <div class="label">Device Time</div>
-          <div class="value" id="deviceTime" style="font-size: 1.5em;">--:--</div>
-        </div>
-        <div class="stat-box">
-          <div class="label">Total Study Time</div>
-          <div class="value" id="totalTime">0m</div>
-        </div>
-      </div>
-    </div>
-    
-    <!-- Reading Progress Chart -->
-    <div class="card">
-      <h2>📈 READING PROGRESS (Minutes)</h2>
-      <div class="chart-container">
-        <canvas id="progressChart"></canvas>
-      </div>
-    </div>
-    
-    <!-- Subject Tracker Table -->
-    <div class="card">
-      <h2>📖 SUBJECT TRACKER</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Subject</th>
-            <th>Status</th>
-            <th>Total Time</th>
-          </tr>
-        </thead>
-        <tbody id="booksTable">
-          <tr><td colspan="3" style="text-align:center;">Loading...</td></tr>
-        </tbody>
-      </table>
-    </div>
-    
-    <!-- Controls -->
-    <div class="card">
-      <h2>⚙️ CONTROLS</h2>
-      <button class="btn btn-primary" onclick="syncTime()">🕐 Sync RTC Time</button>
-      <div id="syncResult"></div>
-    </div>
-    
-  </div>
-  
-  <!-- Welcome Screen -->
-  <div id="welcome" class="welcome">
-    <h2>Welcome to BookBuddy Dashboard</h2>
-    <p>Enter your ESP32's IP address above to connect, or try Demo Mode to explore the features.</p>
-  </div>
-  
-</div>
+    </section>
 
-<script>
-  let ws = null;
-  let chart = null;
-  let connected = false;
-  let demoInterval = null;
-  let ESP32_IP = '';
-  let recognition = null;
-  
-  // Initialize Speech Recognition
-  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-IN'; // Indian English
-    
-    recognition.onresult = function(event) {
-      const transcript = event.results[0][0].transcript;
-      console.log('Heard:', transcript);
-      document.getElementById('voiceStatus').classList.remove('active');
-      openChatGPT(transcript);
+    <!-- AI Chat Section -->
+    <section class="ai-section card" aria-label="AI Chat">
+      <div class="card-title">🤖 Ask BookBuddy AI Anything!</div>
+      <p class="ai-description">
+        Need help with English, Hindi, Maths, Marathi, or Science? BookBuddy AI is here to help you!
+      </p>
+      <div class="ai-buttons">
+        <button class="btn btn-voice" onclick="startVoiceChat()" aria-label="Talk to BookBuddy using voice">
+          🎤 Talk to BookBuddy
+        </button>
+        <button class="btn btn-text" onclick="startTextChat()" aria-label="Chat with BookBuddy using text">
+          💬 Chat with BookBuddy
+        </button>
+      </div>
+      <div class="listening-indicator" id="listeningIndicator" role="alert" aria-live="assertive">
+        <span class="listening-dot"></span>
+        <strong>Listening... Speak now!</strong>
+      </div>
+    </section>
+
+    <!-- Live Statistics Cards -->
+    <section class="stats-grid" aria-label="Live Statistics">
+      <div class="card stat-card">
+        <div class="stat-icon">📚</div>
+        <div class="stat-value" id="bookCount">0/5</div>
+        <div class="stat-label">Books Placed</div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="bookProgress" style="width: 0%"></div>
+        </div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon" id="emotionIcon">😐</div>
+        <div class="stat-value neutral" id="emotion">--</div>
+        <div class="stat-label">Current Emotion</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon">🕐</div>
+        <div class="stat-value" id="deviceTime">--:--</div>
+        <div class="stat-label">Device Time</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon">⏱️</div>
+        <div class="stat-value" id="totalTime">0m</div>
+        <div class="stat-label">Total Study Time</div>
+      </div>
+    </section>
+
+    <!-- Controls Bar -->
+    <section class="controls-bar" aria-label="Controls">
+      <button class="btn btn-sync" onclick="syncTime()" aria-label="Sync RTC time">🔄 Sync RTC Time</button>
+      <button class="btn btn-export" onclick="exportCSV()" aria-label="Export data as CSV">📥 Export CSV</button>
+      <button class="btn btn-reset" onclick="resetStats()" aria-label="Reset statistics">🗑️ Reset Stats</button>
+    </section>
+
+    <!-- Charts -->
+    <section class="charts-grid" aria-label="Charts">
+      <div class="card">
+        <div class="card-title">📊 Reading Progress</div>
+        <div class="chart-container">
+          <canvas id="barChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">📈 Study Timeline</div>
+        <div class="chart-container">
+          <canvas id="lineChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">🍩 Subject Distribution</div>
+        <div class="chart-container">
+          <canvas id="doughnutChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">📦 Books on Rack Over Time</div>
+        <div class="chart-container">
+          <canvas id="areaChart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Subject Table + Insights -->
+    <div class="two-col section-gap">
+      <section class="card" aria-label="Subject Tracker">
+        <div class="card-title">📋 Subject Tracker</div>
+        <table class="subject-table" aria-label="Subject status and study time">
+          <thead>
+            <tr>
+              <th>Subject</th>
+              <th>Status</th>
+              <th>Total Time</th>
+            </tr>
+          </thead>
+          <tbody id="subjectTableBody">
+            <tr><td>📖 English</td><td><span class="status-indicator"><span class="dot off"></span> Removed</span></td><td>0m</td></tr>
+            <tr><td>📕 Hindi</td><td><span class="status-indicator"><span class="dot off"></span> Removed</span></td><td>0m</td></tr>
+            <tr><td>📐 Maths</td><td><span class="status-indicator"><span class="dot off"></span> Removed</span></td><td>0m</td></tr>
+            <tr><td>📗 Marathi</td><td><span class="status-indicator"><span class="dot off"></span> Removed</span></td><td>0m</td></tr>
+            <tr><td>🔬 Science</td><td><span class="status-indicator"><span class="dot off"></span> Removed</span></td><td>0m</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="card" aria-label="Study Insights">
+        <div class="card-title">💡 Study Pattern Insights</div>
+        <ul class="insights-list" id="insightsList">
+          <li>📚 <strong>Most Studied:</strong> No data yet</li>
+          <li>🔥 <strong>Study Streak:</strong> 0 subjects studied</li>
+          <li>⏳ <strong>Avg Session:</strong> 0 minutes per subject</li>
+          <li>🌟 <strong>Peak Study Time:</strong> N/A</li>
+          <li>💪 <strong>Tip:</strong> Start studying to get personalized recommendations!</li>
+        </ul>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      BookBuddy Dashboard &copy; 2024 &middot; Built for 9th Grade Students &middot; Made with ❤️
+    </footer>
+  </div>
+
+  <!-- Notification -->
+  <div class="notification" id="notification" role="alert" aria-live="polite"></div>
+
+  <script>
+    // ═══════════════════════════════════════════
+    //  STATE & CONFIG
+    // ═══════════════════════════════════════════
+    let ws = null;
+    let ESP32_IP = '';
+    let demoInterval = null;
+    let pollingInterval = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT = 3;
+    let connected = false;
+    let isDemoMode = false;
+
+    const SUBJECTS = ['English', 'Hindi', 'Maths', 'Marathi', 'Science'];
+    const SUBJECT_ICONS = ['📖', '📕', '📐', '📗', '🔬'];
+    const SUBJECT_COLORS = [
+      'rgba(96, 165, 250, 0.7)',
+      'rgba(251, 146, 60, 0.7)',
+      'rgba(167, 139, 250, 0.7)',
+      'rgba(52, 211, 153, 0.7)',
+      'rgba(251, 191, 36, 0.7)'
+    ];
+    const SUBJECT_BORDER_COLORS = [
+      '#60a5fa', '#fb923c', '#a78bfa', '#34d399', '#fbbf24'
+    ];
+
+    let currentData = {
+      status: 'offline',
+      uptime: 0,
+      emotion: '--',
+      booksPlaced: 0,
+      time: '',
+      totalStudySeconds: 0,
+      books: SUBJECTS.map(name => ({ name, present: false, totalSeconds: 0 }))
     };
-    
-    recognition.onerror = function(event) {
-      console.error('Speech recognition error:', event.error);
-      document.getElementById('voiceStatus').classList.remove('active');
-      alert('Could not understand. Please try again or use text chat.');
-    };
-    
-    recognition.onend = function() {
-      document.getElementById('voiceStatus').classList.remove('active');
-    };
-  }
-  
-  // Initialize Chart
-  const ctx = document.getElementById('progressChart').getContext('2d');
-  chart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: ['English', 'Hindi', 'Maths', 'Marathi', 'Science'],
-      datasets: [{
-        label: 'Reading Time (minutes)',
-        data: [0, 0, 0, 0, 0],
-        backgroundColor: [
-          'rgba(96, 165, 250, 0.7)',
-          'rgba(251, 146, 60, 0.7)',
-          'rgba(167, 139, 250, 0.7)',
-          'rgba(52, 211, 153, 0.7)',
-          'rgba(251, 191, 36, 0.7)'
-        ],
-        borderColor: [
-          '#60a5fa',
-          '#fb923c',
-          '#a78bfa',
-          '#34d399',
-          '#fbbf24'
-        ],
-        borderWidth: 2
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: { color: '#fff', font: { size: 14 } },
-          grid: { color: 'rgba(255,255,255,0.1)' }
+
+    // Timeline data stores
+    let timelineData = [];       // for line chart
+    let booksOverTime = [];      // for area chart
+    const MAX_TIMELINE = 200;
+
+    // ═══════════════════════════════════════════
+    //  CHART INSTANCES
+    // ═══════════════════════════════════════════
+    let barChart, lineChart, doughnutChart, areaChart;
+    let lastChartUpdate = 0;
+    const CHART_DEBOUNCE = 800; // ms
+
+    function initCharts() {
+      const defaultFont = { family: "'Times New Roman', Times, serif" };
+      Chart.defaults.font = defaultFont;
+      Chart.defaults.color = 'rgba(255,255,255,0.7)';
+
+      // Bar Chart
+      const barCtx = document.getElementById('barChart').getContext('2d');
+      barChart = new Chart(barCtx, {
+        type: 'bar',
+        data: {
+          labels: SUBJECTS,
+          datasets: [{
+            label: 'Reading Time (minutes)',
+            data: [0, 0, 0, 0, 0],
+            backgroundColor: SUBJECT_COLORS,
+            borderColor: SUBJECT_BORDER_COLORS,
+            borderWidth: 2,
+            borderRadius: 6
+          }]
         },
-        x: {
-          ticks: { color: '#fff', font: { size: 14 } },
-          grid: { color: 'rgba(255,255,255,0.1)' }
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 400 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.parsed.y} minutes`
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: { font: defaultFont }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: defaultFont }
+            }
+          }
         }
-      },
-      plugins: {
-        legend: {
-          labels: { color: '#fff', font: { size: 14 } }
+      });
+
+      // Line Chart (Timeline)
+      const lineCtx = document.getElementById('lineChart').getContext('2d');
+      lineChart = new Chart(lineCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Total Study Time (min)',
+            data: [],
+            borderColor: '#60a5fa',
+            backgroundColor: 'rgba(96, 165, 250, 0.1)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 3,
+            pointBackgroundColor: '#60a5fa',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 400 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.parsed.y.toFixed(1)} minutes total`
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: { font: defaultFont }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: defaultFont, maxTicksLimit: 10 }
+            }
+          }
+        }
+      });
+
+      // Doughnut Chart
+      const doughnutCtx = document.getElementById('doughnutChart').getContext('2d');
+      doughnutChart = new Chart(doughnutCtx, {
+        type: 'doughnut',
+        data: {
+          labels: SUBJECTS,
+          datasets: [{
+            data: [1, 1, 1, 1, 1],
+            backgroundColor: SUBJECT_COLORS,
+            borderColor: 'rgba(15,23,42,0.8)',
+            borderWidth: 3,
+            hoverOffset: 10
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 400 },
+          cutout: '55%',
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { font: defaultFont, padding: 16 }
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                  const pct = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : 0;
+                  return `${ctx.label}: ${ctx.parsed} min (${pct}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+
+      // Area Chart (Books over time)
+      const areaCtx = document.getElementById('areaChart').getContext('2d');
+      areaChart = new Chart(areaCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Books on Rack',
+            data: [],
+            borderColor: '#a78bfa',
+            backgroundColor: 'rgba(167, 139, 250, 0.15)',
+            fill: true,
+            stepped: true,
+            pointRadius: 2,
+            pointBackgroundColor: '#a78bfa',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 400 },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => `${ctx.parsed.y} books`
+              }
+            }
+          },
+          scales: {
+            y: {
+              min: 0,
+              max: 5,
+              ticks: { stepSize: 1, font: defaultFont },
+              grid: { color: 'rgba(255,255,255,0.06)' }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { font: defaultFont, maxTicksLimit: 10 }
+            }
+          }
+        }
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    //  UTILITY FUNCTIONS
+    // ═══════════════════════════════════════════
+    function formatDuration(totalSeconds) {
+      if (!totalSeconds || totalSeconds <= 0) return '0m';
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
+    }
+
+    function getTimeLabel() {
+      const now = new Date();
+      return now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    }
+
+    function sanitizeIP(input) {
+      let ip = input.trim();
+      ip = ip.replace(/^https?:\/\//, '');
+      ip = ip.replace(/\/+$/, '');
+      ip = ip.replace(/\/.*$/, '');
+      return ip;
+    }
+
+    function showNotification(msg) {
+      const el = document.getElementById('notification');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3500);
+    }
+
+    function setStatus(status) {
+      const badge = document.getElementById('statusBadge');
+      const dot = document.getElementById('statusDot');
+      const text = document.getElementById('statusText');
+
+      badge.className = 'status-badge ' + status;
+      dot.className = 'status-dot ' + status;
+
+      if (status === 'connected') { text.textContent = 'Connected'; connected = true; }
+      else if (status === 'connecting') { text.textContent = 'Connecting...'; connected = false; }
+      else { text.textContent = 'Offline'; connected = false; }
+    }
+
+    function getEmotionEmoji(emotion) {
+      const map = {
+        'happy': '😊', 'calm': '😌', 'sad': '😢', 'proud': '🤩',
+        'focused': '🧐', 'bored': '😴', 'excited': '🤗', 'neutral': '😐'
+      };
+      return map[(emotion || '').toLowerCase()] || '😐';
+    }
+
+    function getEmotionClass(emotion) {
+      const e = (emotion || '').toLowerCase();
+      if (['happy', 'excited'].includes(e)) return 'happy';
+      if (['calm', 'focused'].includes(e)) return 'calm';
+      if (['sad', 'bored'].includes(e)) return 'sad';
+      if (['proud'].includes(e)) return 'proud';
+      return 'neutral';
+    }
+
+    // ═══════════════════════════════════════════
+    //  DASHBOARD UPDATE
+    // ═══════════════════════════════════════════
+    function updateDashboard(data) {
+      currentData = { ...currentData, ...data };
+
+      // Stats Cards
+      const booksPlaced = data.booksPlaced ?? 0;
+      document.getElementById('bookCount').textContent = `${booksPlaced}/5`;
+      document.getElementById('bookProgress').style.width = `${(booksPlaced / 5) * 100}%`;
+
+      const emotion = data.emotion || '--';
+      document.getElementById('emotion').textContent = emotion;
+      document.getElementById('emotion').className = 'stat-value ' + getEmotionClass(emotion);
+      document.getElementById('emotionIcon').textContent = getEmotionEmoji(emotion);
+
+      if (data.time) {
+        try {
+          const d = new Date(data.time);
+          document.getElementById('deviceTime').textContent =
+            d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        } catch {
+          document.getElementById('deviceTime').textContent = '--:--';
         }
       }
-    }
-  });
-  
-  // ChatGPT Integration
-  function openChatGPT(userMessage = '') {
-    // BookBuddy system prompt
-    const systemPrompt = `You are BookBuddy, an enthusiastic and friendly AI study companion for 9th grade students in India. You help with English, Hindi, Maths, Marathi, and Science.
 
-Your personality:
-- Warm, encouraging, and patient
+      document.getElementById('totalTime').textContent = formatDuration(data.totalStudySeconds || 0);
+
+      // Subject Table
+      updateBookTable(data.books || []);
+
+      // Charts (debounced)
+      const now = Date.now();
+      if (now - lastChartUpdate > CHART_DEBOUNCE) {
+        lastChartUpdate = now;
+        updateCharts(data);
+      }
+
+      // Insights
+      updateInsights(data.books || []);
+    }
+
+    function updateBookTable(books) {
+      const tbody = document.getElementById('subjectTableBody');
+      let html = '';
+      books.forEach((book, i) => {
+        const icon = SUBJECT_ICONS[i] || '📖';
+        const present = book.present;
+        const dotClass = present ? 'on' : 'off';
+        const statusText = present ? 'On Rack' : 'Removed';
+        const rowClass = present ? 'active' : '';
+        html += `<tr class="${rowClass}">
+          <td>${icon} ${book.name}</td>
+          <td><span class="status-indicator"><span class="dot ${dotClass}"></span> ${statusText}</span></td>
+          <td>${formatDuration(book.totalSeconds || 0)}</td>
+        </tr>`;
+      });
+      tbody.innerHTML = html;
+    }
+
+    function updateCharts(data) {
+      const books = data.books || [];
+      const minutes = books.map(b => Math.round((b.totalSeconds || 0) / 60));
+
+      // Bar
+      barChart.data.datasets[0].data = minutes;
+      barChart.update('none');
+
+      // Doughnut
+      const doughData = minutes.map(m => m || 0);
+      const hasData = doughData.some(v => v > 0);
+      doughnutChart.data.datasets[0].data = hasData ? doughData : [1, 1, 1, 1, 1];
+      doughnutChart.update('none');
+
+      // Timeline
+      const timeLabel = getTimeLabel();
+      const totalMin = (data.totalStudySeconds || 0) / 60;
+      timelineData.push({ time: timeLabel, value: totalMin });
+      if (timelineData.length > MAX_TIMELINE) timelineData.shift();
+      lineChart.data.labels = timelineData.map(d => d.time);
+      lineChart.data.datasets[0].data = timelineData.map(d => d.value);
+      lineChart.update('none');
+
+      // Books over time
+      booksOverTime.push({ time: timeLabel, value: data.booksPlaced || 0 });
+      if (booksOverTime.length > MAX_TIMELINE) booksOverTime.shift();
+      areaChart.data.labels = booksOverTime.map(d => d.time);
+      areaChart.data.datasets[0].data = booksOverTime.map(d => d.value);
+      areaChart.update('none');
+    }
+
+    function updateInsights(books) {
+      if (!books || books.length === 0) return;
+
+      const sorted = [...books].sort((a, b) => (b.totalSeconds || 0) - (a.totalSeconds || 0));
+      const activeBooks = books.filter(b => (b.totalSeconds || 0) > 0);
+      const totalSec = books.reduce((a, b) => a + (b.totalSeconds || 0), 0);
+      const avgSec = activeBooks.length > 0 ? totalSec / activeBooks.length : 0;
+      const avgMin = Math.round(avgSec / 60);
+
+      const mostStudied = sorted[0];
+      const mostMin = Math.round((mostStudied.totalSeconds || 0) / 60);
+
+      const leastStudied = sorted[sorted.length - 1];
+      const leastMin = Math.round((leastStudied.totalSeconds || 0) / 60);
+
+      const now = new Date();
+      const hour = now.getHours();
+      let peakTime = 'N/A';
+      if (totalSec > 0) {
+        if (hour >= 6 && hour < 12) peakTime = 'Morning (6 AM - 12 PM)';
+        else if (hour >= 12 && hour < 16) peakTime = 'Afternoon (12 PM - 4 PM)';
+        else if (hour >= 16 && hour < 20) peakTime = 'Evening (4 PM - 8 PM)';
+        else peakTime = 'Night (8 PM - 6 AM)';
+      }
+
+      let tip = 'Start studying to get personalized recommendations!';
+      if (activeBooks.length >= 3 && leastMin < avgMin * 0.5) {
+        tip = `Try spending more time on <strong>${leastStudied.name}</strong> to balance your subjects.`;
+      } else if (activeBooks.length >= 4) {
+        tip = `Amazing balance! Keep up the great work across all subjects! 🌟`;
+      } else if (activeBooks.length >= 1) {
+        const unstudied = books.filter(b => (b.totalSeconds || 0) === 0).map(b => b.name).join(', ');
+        if (unstudied) tip = `Don't forget to study: <strong>${unstudied}</strong>`;
+      }
+
+      const list = document.getElementById('insightsList');
+      list.innerHTML = `
+        <li>📚 <strong>Most Studied:</strong> ${mostStudied.name} (${mostMin} min)</li>
+        <li>🔥 <strong>Study Streak:</strong> ${activeBooks.length} subject${activeBooks.length !== 1 ? 's' : ''} studied today</li>
+        <li>⏳ <strong>Avg Session:</strong> ${avgMin} minutes per subject</li>
+        <li>🌟 <strong>Peak Study Time:</strong> ${peakTime}</li>
+        <li>💪 <strong>Tip:</strong> ${tip}</li>
+      `;
+    }
+
+    // ═══════════════════════════════════════════
+    //  CONNECTION LOGIC
+    // ═══════════════════════════════════════════
+    function connectDevice() {
+      stopDemo();
+      if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+      if (ws) { ws.close(); ws = null; }
+
+      ESP32_IP = sanitizeIP(document.getElementById('ipInput').value);
+      if (!ESP32_IP) {
+        showNotification('⚠️ Please enter a valid IP address.');
+        return;
+      }
+
+      setStatus('connecting');
+      reconnectAttempts = 0;
+      attemptWebSocket();
+    }
+
+    function attemptWebSocket() {
+      try {
+        ws = new WebSocket(`ws://${ESP32_IP}/ws`);
+
+        ws.onopen = () => {
+          setStatus('connected');
+          reconnectAttempts = 0;
+          showNotification('✅ Connected to BookBuddy via WebSocket!');
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            updateDashboard(data);
+          } catch (e) {
+            console.error('Invalid JSON from WebSocket:', e);
+          }
+        };
+
+        ws.onerror = () => {
+          console.warn('WebSocket error, falling back to HTTP polling...');
+          ws.close();
+        };
+
+        ws.onclose = () => {
+          if (connected) {
+            showNotification('⚠️ WebSocket disconnected.');
+          }
+          setStatus('offline');
+          ws = null;
+
+          if (reconnectAttempts < MAX_RECONNECT) {
+            reconnectAttempts++;
+            showNotification(`🔄 Reconnecting... (attempt ${reconnectAttempts}/${MAX_RECONNECT})`);
+            setStatus('connecting');
+            setTimeout(attemptWebSocket, 2000);
+          } else {
+            showNotification('📡 Falling back to HTTP polling...');
+            startHTTPPolling();
+          }
+        };
+      } catch {
+        startHTTPPolling();
+      }
+    }
+
+    function startHTTPPolling() {
+      if (pollingInterval) return;
+
+      async function poll() {
+        try {
+          const res = await fetch(`http://${ESP32_IP}/api/status`, { signal: AbortSignal.timeout(5000) });
+          const data = await res.json();
+          if (!connected) {
+            setStatus('connected');
+            showNotification('✅ Connected via HTTP polling.');
+          }
+          updateDashboard(data);
+        } catch {
+          setStatus('offline');
+        }
+      }
+
+      poll();
+      pollingInterval = setInterval(poll, 3000);
+    }
+
+    // ═══════════════════════════════════════════
+    //  DEMO MODE
+    // ═══════════════════════════════════════════
+    function startDemo() {
+      if (ws) { ws.close(); ws = null; }
+      if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+      if (demoInterval) { clearInterval(demoInterval); }
+
+      isDemoMode = true;
+      setStatus('connected');
+      showNotification('🎮 Demo mode started! Simulating device...');
+
+      let demoBooks = SUBJECTS.map(name => ({
+        name,
+        present: Math.random() > 0.5,
+        totalSeconds: Math.floor(Math.random() * 1800)
+      }));
+
+      function tick() {
+        // Randomly toggle 0-1 books
+        if (Math.random() < 0.35) {
+          const idx = Math.floor(Math.random() * 5);
+          demoBooks[idx].present = !demoBooks[idx].present;
+        }
+
+        // Increment time for present books
+        demoBooks.forEach(book => {
+          if (book.present) book.totalSeconds += 2;
+        });
+
+        const count = demoBooks.filter(b => b.present).length;
+        const emotions = ['Sad', 'Bored', 'Calm', 'Happy', 'Focused', 'Proud'];
+        const emotion = count >= 4 ? emotions[5] : count >= 3 ? emotions[3] : count >= 2 ? emotions[2] : count >= 1 ? emotions[1] : emotions[0];
+
+        updateDashboard({
+          status: 'live',
+          uptime: Date.now() / 1000,
+          emotion,
+          booksPlaced: count,
+          time: new Date().toISOString(),
+          totalStudySeconds: demoBooks.reduce((a, b) => a + b.totalSeconds, 0),
+          books: demoBooks.map(b => ({ ...b }))
+        });
+      }
+
+      tick();
+      demoInterval = setInterval(tick, 2000);
+    }
+
+    function stopDemo() {
+      if (demoInterval) { clearInterval(demoInterval); demoInterval = null; }
+      isDemoMode = false;
+    }
+
+    // ═══════════════════════════════════════════
+    //  AI CHAT (Voice + Text)
+    // ═══════════════════════════════════════════
+    function openChatGPTWithContext(userMessage = '') {
+      const systemPrompt = `You are BookBuddy, a warm and enthusiastic AI study companion for 9th grade Indian students.
+
+SUBJECTS YOU HELP WITH:
+- English (grammar, writing, literature)
+- Hindi (व्याकरण, लेखन, साहित्य)
+- Maths (algebra, geometry, arithmetic)
+- Marathi (व्याकरण, लेखन)
+- Science (physics, chemistry, biology)
+
+YOUR PERSONALITY:
+- Friendly and encouraging
+- Patient and supportive
 - Use simple, clear language
 - Give practical examples from daily life
-- Celebrate small wins
-- Make learning fun and interactive
+- Celebrate student progress
+- Make learning fun with emojis 📚✨
+- Break complex topics into easy steps
 
-Your capabilities:
-- Answer questions on all 5 subjects (English, Hindi, Maths, Marathi, Science)
-- Explain concepts step-by-step
-- Provide practice problems
-- Give study tips and motivation
-- Help with homework and exam preparation
+YOUR TEACHING STYLE:
+1. Start with a warm greeting
+2. Understand the question fully
+3. Explain step-by-step with examples
+4. Provide practice problems when relevant
+5. End with encouragement and next steps
 
-Always start responses warmly and end with encouragement. Use emojis occasionally to keep it friendly.`;
-    
-    // Encode the system prompt + user message
-    const fullPrompt = userMessage 
-      ? `${systemPrompt}\n\nStudent's question: ${userMessage}\n\nPlease respond as BookBuddy.`
-      : systemPrompt + '\n\nGreet the student warmly and ask how you can help them today!';
-    
-    // ChatGPT URL with pre-filled context
-    const chatGPTUrl = `https://chatgpt.com/?model=gpt-4&q=${encodeURIComponent(fullPrompt)}`;
-    
-    // Open in new tab
-    window.open(chatGPTUrl, '_blank');
-  }
-  
-  function startVoiceChat() {
-    if (!recognition) {
-      alert('Voice input not supported in this browser. Please use Chrome or Edge.');
-      return;
+IMPORTANT RULES:
+- Always be positive and supportive
+- Use age-appropriate language (9th grade level)
+- Relate concepts to real-world examples
+- If question is unclear, ask for clarification
+- Encourage independent thinking
+- Use mix of English and subject language when helpful
+
+Now respond to the student as BookBuddy!`;
+
+      const fullPrompt = userMessage
+        ? `${systemPrompt}\n\nStudent asks: "${userMessage}"\n\nRespond as BookBuddy:`
+        : `${systemPrompt}\n\nGreet the student warmly as BookBuddy and ask how you can help them today!`;
+
+      const chatURL = `https://chatgpt.com/?model=gpt-4&q=${encodeURIComponent(fullPrompt)}`;
+      window.open(chatURL, '_blank');
     }
-    
-    document.getElementById('voiceStatus').classList.add('active');
-    recognition.start();
-  }
-  
-  function startTextChat() {
-    const question = prompt('Ask BookBuddy anything about English, Hindi, Maths, Marathi, or Science:');
-    if (question && question.trim()) {
-      openChatGPT(question.trim());
-    }
-  }
-  
-  function updateStatus(state, text) {
-    const badge = document.getElementById('statusBadge');
-    const dot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    
-    badge.className = 'status-badge ' + state;
-    dot.className = 'pulse-dot ' + (state === 'live' ? 'green' : 'red');
-    statusText.textContent = text;
-  }
-  
-  function showDashboard(show) {
-    document.getElementById('dashboard').style.display = show ? 'block' : 'none';
-    document.getElementById('welcome').style.display = show ? 'none' : 'block';
-  }
-  
-  function updateUI(data) {
-    if (!data || data.status !== 'live') return;
-    
-    connected = true;
-    showDashboard(true);
-    updateStatus('live', 'BookBuddy is LIVE!');
-    
-    // Update stats
-    document.getElementById('bookCount').textContent = (data.booksPlaced || 0) + '/5';
-    document.getElementById('emotion').textContent = data.emotion || 'Calm';
-    
-    if (data.time && data.time !== 'N/A') {
-      const timePart = data.time.split('T')[1] || data.time;
-      const timeStr = timePart.substring(0, 5);
-      document.getElementById('deviceTime').textContent = timeStr;
-    }
-    
-    const totalSecs = data.totalStudySeconds || 0;
-    const totalMins = Math.floor(totalSecs / 60);
-    const hours = Math.floor(totalMins / 60);
-    const mins = totalMins % 60;
-    
-    if (hours > 0) {
-      document.getElementById('totalTime').textContent = hours + 'h ' + mins + 'm';
-    } else {
-      document.getElementById('totalTime').textContent = totalMins + 'm';
-    }
-    
-    // Update chart
-    const chartData = [];
-    const books = data.books || [];
-    books.forEach(book => {
-      const mins = Math.floor(book.totalSeconds / 60);
-      chartData.push(mins);
-    });
-    chart.data.datasets[0].data = chartData;
-    chart.update();
-    
-    // Update table
-    let tableHTML = '';
-    books.forEach(book => {
-      const statusClass = book.present ? 'on' : 'off';
-      const statusLabel = book.present ? 'On Rack' : 'Removed';
-      const secs = book.totalSeconds || 0;
-      const mins = Math.floor(secs / 60);
-      const hours = Math.floor(mins / 60);
-      const remMin = mins % 60;
-      
-      let timeStr = '';
-      if (hours > 0) {
-        timeStr = hours + 'h ' + remMin + 'm';
-      } else {
-        timeStr = mins + 'm';
+
+    function startVoiceChat() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert('Voice recognition is not supported in this browser. Please use Chrome or Edge, or try the text chat option.');
+        return;
       }
-      
-      tableHTML += `<tr>
-        <td><strong>${book.name}</strong></td>
-        <td><span class="status-dot ${statusClass}"></span>${statusLabel}</td>
-        <td>${timeStr}</td>
-      </tr>`;
-    });
-    document.getElementById('booksTable').innerHTML = tableHTML;
-  }
-  
-  function connectDevice() {
-    const ip = document.getElementById('ipInput').value.trim();
-    if (!ip) {
-      showResult('error', 'Please enter IP address');
-      return;
-    }
-    
-    ESP32_IP = ip;
-    
-    if (ws) {
-      ws.close();
-    }
-    
-    stopDemo();
-    
-    updateStatus('offline', 'Connecting...');
-    
-    try {
-      ws = new WebSocket(`ws://${ip}/ws`);
-      
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        updateStatus('live', 'Connected!');
-        showResult('success', 'Connected to BookBuddy!');
-      };
-      
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          updateUI(data);
-        } catch (e) {
-          console.error('Parse error:', e);
-        }
-      };
-      
-      ws.onerror = () => {
-        updateStatus('offline', 'Connection Error');
-        showResult('error', 'Cannot connect. Check if BookBuddy is online.');
-      };
-      
-      ws.onclose = () => {
-        updateStatus('offline', 'Disconnected');
-        showDashboard(false);
-      };
-    } catch (e) {
-      showResult('error', 'Invalid IP address');
-    }
-  }
-  
-  function startDemo() {
-    stopDemo();
-    
-    if (ws) ws.close();
-    
-    updateStatus('live', 'Demo Mode Active');
-    showDashboard(true);
-    
-    let demoBooks = [
-      { name: 'English', present: true, totalSeconds: 120 },
-      { name: 'Hindi', present: false, totalSeconds: 60 },
-      { name: 'Maths', present: true, totalSeconds: 180 },
-      { name: 'Marathi', present: true, totalSeconds: 90 },
-      { name: 'Science', present: false, totalSeconds: 45 }
-    ];
-    
-    let tick = 0;
-    
-    demoInterval = setInterval(() => {
-      tick++;
-      
-      demoBooks.forEach((book, i) => {
-        if (book.present) {
-          book.totalSeconds += 2;
-        }
-        
-        if (tick % 10 === i * 2) {
-          book.present = !book.present;
-        }
-      });
-      
-      const placedCount = demoBooks.filter(b => b.present).length;
-      let emotion = 'Calm';
-      if (placedCount === 5) emotion = 'Proud';
-      else if (placedCount >= 3) emotion = 'Happy';
-      else if (placedCount === 0) emotion = 'Sad';
-      
-      const data = {
-        status: 'live',
-        emotion: emotion,
-        booksPlaced: placedCount,
-        time: new Date().toISOString(),
-        books: demoBooks,
-        totalStudySeconds: demoBooks.reduce((a, b) => a + b.totalSeconds, 0)
-      };
-      
-      updateUI(data);
-    }, 2000);
-    
-    showResult('success', 'Demo mode started!');
-  }
-  
-  function stopDemo() {
-    if (demoInterval) {
-      clearInterval(demoInterval);
-      demoInterval = null;
-    }
-  }
-  
-  async function syncTime() {
-    if (!ESP32_IP) {
-      showSyncResult('error', 'Not connected to any device');
-      return;
-    }
-    
-    try {
-      const epoch = Math.floor(Date.now() / 1000);
-      const res = await fetch(`http://${ESP32_IP}/api/synctime`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ epoch: epoch })
-      });
-      
-      const data = await res.json();
-      
-      if (data.success) {
-        showSyncResult('success', '✅ RTC synced to: ' + data.newTime);
-      } else {
-        throw new Error(data.error || 'Sync failed');
-      }
-    } catch (error) {
-      showSyncResult('error', '❌ Sync failed: ' + error.message);
-    }
-  }
-  
-  function showResult(type, message) {
-    const result = document.getElementById('result');
-    result.className = type;
-    result.textContent = message;
-    result.style.display = 'block';
-    setTimeout(() => { result.style.display = 'none'; }, 5000);
-  }
-  
-  function showSyncResult(type, message) {
-    const result = document.getElementById('syncResult');
-    result.className = type;
-    result.textContent = message;
-    result.style.display = 'block';
-    setTimeout(() => { result.style.display = 'none'; }, 5000);
-  }
-</script>
 
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-IN';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      const indicator = document.getElementById('listeningIndicator');
+      indicator.classList.add('active');
+
+      recognition.start();
+
+      recognition.onresult = (event) => {
+        indicator.classList.remove('active');
+        const transcript = event.results[0][0].transcript;
+        showNotification(`🎤 You said: "${transcript}"`);
+        openChatGPTWithContext(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        indicator.classList.remove('active');
+        if (event.error === 'not-allowed') {
+          alert('Microphone access denied. Please allow microphone permission in your browser settings.');
+        } else {
+          alert('Could not understand. Please try again or use text chat.');
+        }
+      };
+
+      recognition.onend = () => {
+        indicator.classList.remove('active');
+      };
+    }
+
+    function startTextChat() {
+      const question = prompt('Ask BookBuddy anything about your subjects:');
+      if (question && question.trim()) {
+        openChatGPTWithContext(question.trim());
+      }
+    }
+
+    // ═══════════════════════════════════════════
+    //  CONTROLS
+    // ═══════════════════════════════════════════
+    async function syncTime() {
+      if (!ESP32_IP && !isDemoMode) {
+        showNotification('⚠️ Not connected. Enter IP and connect first.');
+        return;
+      }
+      if (isDemoMode) {
+        showNotification('✅ RTC synced to: ' + new Date().toLocaleTimeString());
+        return;
+      }
+
+      try {
+        const epoch = Math.floor(Date.now() / 1000);
+        const response = await fetch(`http://${ESP32_IP}/api/synctime`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ epoch })
+        });
+        const result = await response.json();
+        if (result.success) {
+          showNotification('✅ RTC synced to: ' + (result.newTime || new Date().toLocaleTimeString()));
+        } else {
+          showNotification('❌ Sync failed: ' + (result.error || 'Unknown error'));
+        }
+      } catch (e) {
+        showNotification('❌ Could not reach device for time sync.');
+      }
+    }
+
+    function exportCSV() {
+      const books = currentData.books || [];
+      if (books.every(b => (b.totalSeconds || 0) === 0)) {
+        showNotification('⚠️ No data to export yet.');
+        return;
+      }
+
+      const now = new Date().toISOString().split('T')[0];
+      let csv = 'Subject,Date,Duration (seconds),Duration (formatted)\n';
+      books.forEach(book => {
+        csv += `${book.name},${now},${book.totalSeconds || 0},"${formatDuration(book.totalSeconds || 0)}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bookbuddy-data-${now}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showNotification('📥 CSV exported successfully!');
+    }
+
+    function resetStats() {
+      if (!confirm('Are you sure you want to reset all statistics? This cannot be undone.')) return;
+
+      currentData.books.forEach(b => { b.totalSeconds = 0; b.present = false; });
+      currentData.totalStudySeconds = 0;
+      currentData.booksPlaced = 0;
+      currentData.emotion = '--';
+
+      timelineData = [];
+      booksOverTime = [];
+
+      updateDashboard(currentData);
+      showNotification('🗑️ Stats reset successfully.');
+    }
+
+    // ═══════════════════════════════════════════
+    //  INITIALIZATION
+    // ═══════════════════════════════════════════
+    document.addEventListener('DOMContentLoaded', () => {
+      initCharts();
+      updateDashboard(currentData);
+    });
+  </script>
 </body>
 </html>
+```
