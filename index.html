@@ -1,501 +1,320 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>📚 BookBuddy Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<style>
-  * {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-    font-family: 'Times New Roman', Times, serif;
-  }
-  
-  body {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: #fff;
-    min-height: 100vh;
-    padding: 20px;
-  }
-  
-  .container {
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-  
-  .header {
-    text-align: center;
-    padding: 30px 0;
-    border-bottom: 3px solid rgba(255,255,255,0.2);
-    margin-bottom: 30px;
-  }
-  
-  .header h1 {
-    font-size: 3.5em;
-    font-weight: bold;
-    margin-bottom: 10px;
-  }
-  
-  .status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 30px;
-    border-radius: 50px;
-    font-size: 1.2em;
-    font-weight: bold;
-    border: 3px solid;
-    margin: 20px 0;
-  }
-  
-  .status-badge.live {
-    background: rgba(76, 175, 80, 0.2);
-    border-color: #4CAF50;
-    color: #4CAF50;
-  }
-  
-  .status-badge.offline {
-    background: rgba(244, 67, 54, 0.2);
-    border-color: #F44336;
-    color: #F44336;
-  }
-  
-  .pulse-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    animation: pulse 1.5s infinite;
-  }
-  
-  .pulse-dot.green { background: #4CAF50; }
-  .pulse-dot.red { background: #F44336; }
-  
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-  
-  .card {
-    background: rgba(255,255,255,0.15);
-    border: 2px solid rgba(255,255,255,0.2);
-    border-radius: 20px;
-    padding: 25px;
-    margin-bottom: 25px;
-    backdrop-filter: blur(10px);
-  }
-  
-  .card h2 {
-    font-size: 1.8em;
-    font-weight: bold;
-    margin-bottom: 20px;
-    text-align: center;
-  }
-  
-  .stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-    margin-bottom: 20px;
-  }
-  
-  .stat-box {
-    background: rgba(255,255,255,0.1);
-    border-radius: 15px;
-    padding: 20px;
-    text-align: center;
-  }
-  
-  .stat-box .label {
-    font-size: 1em;
-    font-weight: bold;
-    opacity: 0.8;
-    margin-bottom: 8px;
-  }
-  
-  .stat-box .value {
-    font-size: 2em;
-    font-weight: bold;
-  }
-  
-  .btn {
-    display: inline-block;
-    padding: 12px 30px;
-    border-radius: 50px;
-    border: none;
-    font-size: 1.1em;
-    font-weight: bold;
-    cursor: pointer;
-    transition: all 0.3s;
-    font-family: 'Times New Roman', Times, serif;
-  }
-  
-  .btn-primary {
-    background: linear-gradient(to right, #f093fb 0%, #f5576c 100%);
-    color: #fff;
-  }
-  
-  .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
-  }
-  
-  .chart-container {
-    position: relative;
-    height: 300px;
-    margin: 20px 0;
-  }
-  
-  table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  
-  table th, table td {
-    padding: 15px;
-    text-align: left;
-    border-bottom: 2px solid rgba(255,255,255,0.1);
-  }
-  
-  table th {
-    font-size: 1.1em;
-    font-weight: bold;
-  }
-  
-  table td {
-    font-size: 1.2em;
-    font-weight: bold;
-  }
-  
-  .status-dot {
-    display: inline-block;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    margin-right: 8px;
-  }
-  
-  .status-dot.on {
-    background: #4CAF50;
-    box-shadow: 0 0 8px #4CAF50;
-  }
-  
-  .status-dot.off {
-    background: #666;
-  }
-  
-  #result {
-    margin-top: 15px;
-    padding: 12px;
-    border-radius: 12px;
-    display: none;
-    font-weight: bold;
-  }
-  
-  #result.success {
-    background: rgba(76, 175, 80, 0.2);
-    border: 2px solid #4CAF50;
-    color: #4CAF50;
-    display: block;
-  }
-  
-  #result.error {
-    background: rgba(244, 67, 54, 0.2);
-    border: 2px solid #F44336;
-    color: #F44336;
-    display: block;
-  }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Buddy Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/_sdk/element_sdk.js"></script>
+    <script src="/_sdk/data_sdk.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap" rel="stylesheet">
+    <style>
+        body {
+            box-sizing: border-box;
+            font-family: 'Times New Roman', Times, serif;
+        }
+        
+        * {
+            font-family: 'Times New Roman', Times, serif;
+        }
+        
+        .status-dot {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .book-card {
+            transition: all 0.3s ease;
+        }
+        
+        .book-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .connecting {
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+    </style>
 </head>
-<body>
+<body class="h-full bg-gray-100">
+    <div id="app" class="h-full w-full overflow-auto">
+        <!-- Header -->
+        <header class="bg-white border-b-4 border-black p-4">
+            <div class="max-w-6xl mx-auto flex justify-between items-center">
+                <div>
+                    <h1 id="main-title" class="text-3xl font-bold text-black">📚 BOOK BUDDY DASHBOARD</h1>
+                    <p class="text-lg font-bold text-black mt-1">Your Study Partner</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div id="connection-status" class="flex items-center gap-2 px-4 py-2 border-2 border-black bg-gray-200">
+                        <span id="status-dot" class="w-3 h-3 rounded-full bg-red-500"></span>
+                        <span id="status-text" class="font-bold text-black">DISCONNECTED</span>
+                    </div>
+                </div>
+            </div>
+        </header>
 
-<div class="container">
-  
-  <div class="header">
-    <h1>📚 BOOKBUDDY DASHBOARD</h1>
-    <p style="font-size:1.3em;">Your Smart Study Partner</p>
-    <div id="statusBadge" class="status-badge offline">
-      <div id="statusDot" class="pulse-dot red"></div>
-      <span id="statusText">Connecting...</span>
-    </div>
-  </div>
-  
-  <!-- Quick Stats -->
-  <div class="card">
-    <h2>📊 LIVE STATUS</h2>
-    <div class="stats-grid">
-      <div class="stat-box">
-        <div class="label">Books Placed</div>
-        <div class="value" id="bookCount">--</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">Current Time</div>
-        <div class="value" id="rtcTime" style="font-size:1.5em;">--:--:--</div>
-      </div>
-      <div class="stat-box">
-        <div class="label">Total Study Time</div>
-        <div class="value" id="totalTime">--</div>
-      </div>
-    </div>
-  </div>
-  
-  <!-- Reading Progress Chart -->
-  <div class="card">
-    <h2>📈 READING PROGRESS (Minutes)</h2>
-    <div class="chart-container">
-      <canvas id="progressChart"></canvas>
-    </div>
-  </div>
-  
-  <!-- Book Status Table -->
-  <div class="card">
-    <h2>📖 SUBJECT TRACKER</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Subject</th>
-          <th>Status</th>
-          <th>Total Time</th>
-        </tr>
-      </thead>
-      <tbody id="booksTable">
-        <tr><td colspan="3" style="text-align:center;">Loading...</td></tr>
-      </tbody>
-    </table>
-  </div>
-  
-  <!-- Controls -->
-  <div class="card">
-    <h2>⚙️ CONTROLS</h2>
-    <div style="text-align:center;">
-      <button class="btn btn-primary" onclick="syncTime()">🕐 Sync RTC Time</button>
-      <div id="result"></div>
-    </div>
-  </div>
-  
-</div>
+        <!-- Main Content -->
+        <main class="max-w-6xl mx-auto p-6">
+            <!-- Connection Section -->
+            <section class="bg-white border-4 border-black p-6 mb-6">
+                <h2 class="text-2xl font-bold text-black mb-4">🔌 CONNECTION</h2>
+                <div class="flex flex-wrap gap-4">
+                    <div class="flex-1 min-w-64">
+                        <label class="block text-lg font-bold text-black mb-2">WEBSOCKET URL:</label>
+                        <input type="text" id="ws-url" 
+                               class="w-full p-3 border-2 border-black text-lg font-bold text-black bg-white"
+                               placeholder="wss://your-esp32-url.local"
+                               value="">
+                    </div>
+                    <div class="flex items-end gap-2">
+                        <button id="connect-btn" 
+                                onclick="toggleConnection()"
+                                class="px-6 py-3 bg-black text-white text-lg font-bold border-2 border-black hover:bg-gray-800">
+                            CONNECT
+                        </button>
+                        <button onclick="syncTime()"
+                                class="px-6 py-3 bg-white text-black text-lg font-bold border-2 border-black hover:bg-gray-100">
+                            🕐 SYNC TIME
+                        </button>
+                    </div>
+                </div>
+                <p id="connection-message" class="mt-4 text-lg font-bold text-black"></p>
+            </section>
 
-<script>
-  // ===== CONFIGURATION =====
-  const ESP32_IP = '10.152.138.159';  // YOUR ESP32 IP
-  const USE_WEBSOCKET = true;
-  
-  let ws = null;
-  let progressChart = null;
-  
-  // Initialize Chart
-  const ctx = document.getElementById('progressChart').getContext('2d');
-  progressChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: ['English', 'Hindi', 'Maths', 'Marathi', 'Science'],
-      datasets: [{
-        label: 'Reading Time (minutes)',
-        data: [0, 0, 0, 0, 0],
-        backgroundColor: [
-          'rgba(255, 99, 132, 0.7)',
-          'rgba(54, 162, 235, 0.7)',
-          'rgba(255, 206, 86, 0.7)',
-          'rgba(75, 192, 192, 0.7)',
-          'rgba(153, 102, 255, 0.7)'
-        ],
-        borderColor: [
-          'rgba(255, 99, 132, 1)',
-          'rgba(54, 162, 235, 1)',
-          'rgba(255, 206, 86, 1)',
-          'rgba(75, 192, 192, 1)',
-          'rgba(153, 102, 255, 1)'
-        ],
-        borderWidth: 2
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: { color: '#fff', font: { size: 14, weight: 'bold' } },
-          grid: { color: 'rgba(255,255,255,0.1)' }
-        },
-        x: {
-          ticks: { color: '#fff', font: { size: 14, weight: 'bold' } },
-          grid: { color: 'rgba(255,255,255,0.1)' }
+            <!-- Current Status Section -->
+            <section class="bg-white border-4 border-black p-6 mb-6">
+                <h2 class="text-2xl font-bold text-black mb-4">📊 CURRENT STATUS</h2>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="border-2 border-black p-4 text-center">
+                        <p class="text-lg font-bold text-black">CURRENT TIME</p>
+                        <p id="current-time" class="text-2xl font-bold text-black">--:--:--</p>
+                    </div>
+                    <div class="border-2 border-black p-4 text-center">
+                        <p class="text-lg font-bold text-black">BOOKS PLACED</p>
+                        <p id="books-placed" class="text-2xl font-bold text-black">0 / 5</p>
+                    </div>
+                    <div class="border-2 border-black p-4 text-center">
+                        <p class="text-lg font-bold text-black">TOTAL STUDY TIME</p>
+                        <p id="total-time" class="text-2xl font-bold text-black">0h 0m</p>
+                    </div>
+                    <div class="border-2 border-black p-4 text-center">
+                        <p class="text-lg font-bold text-black">MOOD</p>
+                        <p id="current-mood" class="text-2xl font-bold text-black">😊</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Books Section -->
+            <section class="bg-white border-4 border-black p-6 mb-6">
+                <h2 class="text-2xl font-bold text-black mb-4">📖 TODAY'S PROGRESS</h2>
+                <div id="books-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Book cards will be inserted here -->
+                </div>
+            </section>
+
+            <!-- ChatGPT Section -->
+            <section class="bg-white border-4 border-black p-6 mb-6">
+                <h2 class="text-2xl font-bold text-black mb-4">💬 ASK BOOK BUDDY</h2>
+                <p class="text-lg font-bold text-black mb-4">Need help with your studies? Chat with Book Buddy's AI assistant!</p>
+                <a href="https://chat.openai.com/?q=Hey%21%20I%27m%20Book%20Buddy%2C%20your%20study%20partner%21%20%F0%9F%93%9A%20What%27s%20on%20your%20mind%3F%20I%27m%20here%20to%20help%20you%20with%20your%20studies%2C%20answer%20questions%2C%20or%20just%20chat%20about%20learning%21" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   class="inline-block px-8 py-4 bg-black text-white text-xl font-bold border-2 border-black hover:bg-gray-800">
+                    🤖 OPEN CHATGPT
+                </a>
+            </section>
+
+            <!-- History Section -->
+            <section class="bg-white border-4 border-black p-6">
+                <h2 class="text-2xl font-bold text-black mb-4">📅 STUDY HISTORY</h2>
+                <div id="history-container" class="space-y-2">
+                    <p class="text-lg font-bold text-black text-center">No history data available</p>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="bg-white border-t-4 border-black p-4 mt-6">
+            <div class="max-w-6xl mx-auto text-center">
+                <p class="text-lg font-bold text-black">📚 BOOK BUDDY - YOUR STUDY PARTNER 📚</p>
+                <p class="text-md font-bold text-black mt-2">Keep your books close, knowledge closer!</p>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // Configuration
+        const defaultConfig = {
+            dashboard_title: 'BOOK BUDDY DASHBOARD',
+            background_color: '#f3f4f6',
+            text_color: '#000000',
+            accent_color: '#000000'
+        };
+
+        let config = { ...defaultConfig };
+        let websocket = null;
+        let isConnected = false;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+
+        // Book data structure
+        const subjects = ['ENGLISH', 'MATHEMATICS', 'SCIENCE', 'HISTORY', 'GEOGRAPHY'];
+        let bookData = {};
+        let studyHistory = [];
+
+        // Initialize book data
+        subjects.forEach((subject, index) => {
+            bookData[subject] = {
+                id: `book_${index + 1}`,
+                subject: subject,
+                isPlaced: false,
+                totalSeconds: 0,
+                sessionStart: null,
+                lastUpdated: new Date().toISOString()
+            };
+        });
+
+        // Element SDK initialization
+        const elementHandler = {
+            defaultConfig: defaultConfig,
+            onConfigChange: async (newConfig) => {
+                config = { ...config, ...newConfig };
+                updateUI();
+            },
+            mapToCapabilities: (cfg) => ({
+                recolorables: [],
+                borderables: [],
+                fontEditable: undefined,
+                fontSizeable: undefined
+            }),
+            mapToEditPanelValues: (cfg) => new Map([
+                ['dashboard_title', cfg.dashboard_title || defaultConfig.dashboard_title]
+            ])
+        };
+
+        // Data SDK handler
+        const dataHandler = {
+            onDataChanged: (data) => {
+                if (data && data.length > 0) {
+                    data.forEach(record => {
+                        if (record.subject && bookData[record.subject]) {
+                            bookData[record.subject].totalSeconds = record.total_seconds || 0;
+                            bookData[record.subject].isPlaced = record.is_placed || false;
+                            bookData[record.subject].lastUpdated = record.last_updated || new Date().toISOString();
+                        }
+                    });
+                    renderBooks();
+                    updateStats();
+                }
+            }
+        };
+
+        // Initialize SDKs
+        async function initializeSDKs() {
+            if (window.elementSdk) {
+                await window.elementSdk.init(elementHandler);
+            }
+            if (window.dataSdk) {
+                const result = await window.dataSdk.init(dataHandler);
+                if (!result.isOk) {
+                    console.error('Failed to initialize Data SDK');
+                }
+            }
+            updateUI();
+            renderBooks();
+            startClock();
         }
-      },
-      plugins: {
-        legend: {
-          labels: { color: '#fff', font: { size: 14, weight: 'bold' } }
+
+        // Update UI based on config
+        function updateUI() {
+            const titleEl = document.getElementById('main-title');
+            if (titleEl) {
+                titleEl.textContent = '📚 ' + (config.dashboard_title || defaultConfig.dashboard_title);
+            }
         }
-      }
-    }
-  });
-  
-  function updateStatus(state, text) {
-    const badge = document.getElementById('statusBadge');
-    const dot = document.getElementById('statusDot');
-    const statusText = document.getElementById('statusText');
-    
-    badge.className = 'status-badge ' + state;
-    dot.className = 'pulse-dot ' + (state === 'live' ? 'green' : 'red');
-    statusText.textContent = text;
-  }
-  
-  function updateUI(data) {
-    if (data.status === 'live') {
-      updateStatus('live', 'BookBuddy is LIVE!');
-      
-      document.getElementById('bookCount').textContent = (data.booksPlaced || 0) + ' / 5';
-      
-      if (data.time && data.time !== 'N/A') {
-        const timePart = data.time.split('T')[1] || data.time;
-        document.getElementById('rtcTime').textContent = timePart;
-      }
-      
-      const totalMins = Math.floor((data.totalStudySeconds || 0) / 60);
-      const totalHours = Math.floor(totalMins / 60);
-      const remMins = totalMins % 60;
-      
-      if (totalHours > 0) {
-        document.getElementById('totalTime').textContent = totalHours + 'h ' + remMins + 'm';
-      } else {
-        document.getElementById('totalTime').textContent = totalMins + 'm';
-      }
-      
-      // Update chart
-      const chartData = [];
-      const books = data.books || [];
-      books.forEach(book => {
-        const mins = Math.floor(book.totalSeconds / 60);
-        chartData.push(mins);
-      });
-      progressChart.data.datasets[0].data = chartData;
-      progressChart.update();
-      
-      // Update table
-      let tableHTML = '';
-      books.forEach(book => {
-        const statusClass = book.present ? 'on' : 'off';
-        const statusLabel = book.present ? 'On Rack' : 'Removed';
-        const mins = Math.floor(book.totalSeconds / 60);
-        const hours = Math.floor(mins / 60);
-        const remMin = mins % 60;
+
+        // Render book cards
+        function renderBooks() {
+            const container = document.getElementById('books-container');
+            if (!container) return;
+
+            container.innerHTML = '';
+            
+            subjects.forEach(subject => {
+                const book = bookData[subject];
+                const hours = Math.floor(book.totalSeconds / 3600);
+                const minutes = Math.floor((book.totalSeconds % 3600) / 60);
+                const seconds = book.totalSeconds % 60;
+                
+                const card = document.createElement('div');
+                card.className = `book-card border-4 border-black p-4 ${book.isPlaced ? 'bg-green-100' : 'bg-white'}`;
+                card.innerHTML = `
+                    <div class="text-center">
+                        <h3 class="text-xl font-bold text-black mb-2">${subject}</h3>
+                        <div class="text-4xl mb-2">${getBookEmoji(subject)}</div>
+                        <p class="text-lg font-bold text-black">
+                            STATUS: ${book.isPlaced ? '✅ PLACED' : '❌ NOT PLACED'}
+                        </p>
+                        <p class="text-2xl font-bold text-black mt-2">
+                            ${hours}h ${minutes}m ${seconds}s
+                        </p>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Get book emoji
+        function getBookEmoji(subject) {
+            const emojis = {
+                'ENGLISH': '📕',
+                'HINDI': '📘',
+                'MATHS': '📗',
+                'MARATHI': '📙',
+                'SCIENCE': '📓'
+            };
+            return emojis[subject] || '📖';
+        }
+
+        // Update statistics
+        function updateStats() {
+            const placedCount = Object.values(bookData).filter(b => b.isPlaced).length;
+            const totalSeconds = Object.values(bookData).reduce((sum, b) => sum + b.totalSeconds, 0);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+            const booksPlacedEl = document.getElementById('books-placed');
+            const totalTimeEl = document.getElementById('total-time');
+            const moodEl = document.getElementById('current-mood');
+
+            if (booksPlacedEl) booksPlacedEl.textContent = `${placedCount} / 5`;
+            if (totalTimeEl) totalTimeEl.textContent = `${hours}h ${minutes}m`;
+            if (moodEl) moodEl.textContent = getMoodEmoji(placedCount);
+        }
+
+        // Get mood emoji based on books placed
+        function getMoodEmoji(count) {
+            const moods = ['😐', '🙂', '😊', '😄', '😁', '🤩'];
+            return moods[Math.min(count, 5)];
+        }
+
+        // Start clock
+        function startClock() {
+            function updateClock() {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('en-US', { hour12: false });
+                const timeEl = document.getElementById('current-time');
+                if (timeEl) timeEl.textContent = timeStr;
+            }
+            updateClock();
         
-        let timeStr = '';
-        if (hours > 0) {
-          timeStr = hours + 'h ' + remMin + 'm';
-        } else {
-          timeStr = mins + 'm';
-        }
-        
-        tableHTML += `<tr>
-          <td><strong>${book.name}</strong></td>
-          <td><span class="status-dot ${statusClass}"></span>${statusLabel}</td>
-          <td>${timeStr}</td>
-        </tr>`;
-      });
-      document.getElementById('booksTable').innerHTML = tableHTML;
-    }
-  }
-  
-  function connectWebSocket() {
-    if (!USE_WEBSOCKET || !ESP32_IP) {
-      fetchData();
-      setInterval(fetchData, 3000);
-      return;
-    }
-    
-    updateStatus('offline', 'Connecting...');
-    
-    ws = new WebSocket(`ws://${ESP32_IP}/ws`);
-    
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      updateStatus('live', 'Connected!');
-    };
-    
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        updateUI(data);
-      } catch (e) {
-        console.error('Parse error:', e);
-      }
-    };
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      updateStatus('offline', 'Connection Error');
-    };
-    
-    ws.onclose = () => {
-      console.log('WebSocket closed');
-      updateStatus('offline', 'Disconnected');
-      setTimeout(connectWebSocket, 3000);
-    };
-  }
-  
-  async function fetchData() {
-    if (!ESP32_IP) {
-      updateStatus('offline', 'Please set ESP32 IP');
-      return;
-    }
-    
-    try {
-      const response = await fetch(`http://${ESP32_IP}/api/status`, {
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (!response.ok) throw new Error('HTTP error');
-      
-      const data = await response.json();
-      updateUI(data);
-      
-    } catch (error) {
-      updateStatus('offline', 'ESP32 Offline');
-    }
-  }
-  
-  async function syncTime() {
-    if (!ESP32_IP) {
-      alert('Please set ESP32 IP address');
-      return;
-    }
-    
-    const resultDiv = document.getElementById('result');
-    
-    try {
-      const epoch = Math.floor(Date.now() / 1000);
-      
-      const response = await fetch(`http://${ESP32_IP}/api/synctime`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ epoch: epoch })
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        resultDiv.className = 'success';
-        resultDiv.textContent = '✅ RTC synced to: ' + data.newTime;
-        setTimeout(() => fetchData(), 1000);
-      } else {
-        throw new Error(data.error || 'Sync failed');
-      }
-      
-    } catch (error) {
-      resultDiv.className = 'error';
-      resultDiv.textContent = '❌ Sync failed: ' + error.message;
-    }
-    
-    resultDiv.style.display = 'block';
-    setTimeout(() => { resultDiv.style.display = 'none'; }, 5000);
-  }
-  
-  // Initialize
-  connectWebSocket();
-</script>
-
-</body>
-</html>
