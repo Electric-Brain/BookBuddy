@@ -413,7 +413,7 @@
 <script>
   // ===== CONFIGURATION =====
   // Enter your ESP32's IP address here after it connects to WiFi
-  const ESP32_IP = 'YOUR_ESP32_IP_HERE';  // Example: '192.168.1.100'
+  const ESP32_IP = '10.152.138.159';  // Example: '192.168.1.100'
   const USE_WEBSOCKET = true;  // Set to true for real-time updates
   
   let ws = null;
@@ -540,7 +540,7 @@
   }
   
   async function fetchData() {
-    if (!ESP32_IP || ESP32_IP === 'http://10.152.138.159') {
+    if (!ESP32_IP || ESP32_IP === '10.152.138.159') {
       updateStatus('offline', 'Please set ESP32 IP address');
       return;
     }
@@ -570,7 +570,7 @@
   }
   
   async function syncTime() {
-    if (!ESP32_IP || ESP32_IP === 'YOUR_ESP32_IP_HERE') {
+    if (!ESP32_IP || ESP32_IP === '10.152.138.159') {
       alert('Please set ESP32 IP address in the code');
       return;
     }
@@ -607,7 +607,7 @@
   }
   
   // Initialize
-  if (USE_WEBSOCKET && ESP32_IP && ESP32_IP !== 'YOUR_ESP32_IP_HERE') {
+  if (USE_WEBSOCKET && ESP32_IP && ESP32_IP !== '10.152.138.159') {
     connectWebSocket();
   } else {
     fetchData();
