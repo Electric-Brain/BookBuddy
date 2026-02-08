@@ -1,13 +1,10 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BookBuddy Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>BookBuddy Dashboard V4</title>
     <style>
-        /* Global Styles */
         * {
             margin: 0;
             padding: 0;
@@ -15,7 +12,7 @@
         }
 
         body {
-            font-family: 'Times New Roman', Times, serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #374151, #1e3a8a);
             color: rgba(255, 255, 255, 0.9);
             min-height: 100vh;
@@ -28,49 +25,27 @@
             margin: 0 auto;
         }
 
-        h1, h2, h3 {
-            font-weight: bold;
+        h1, h2 {
             background: linear-gradient(to right, #3b82f6, #60a5fa);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        h1 {
-            font-size: 2.5rem;
-            margin-bottom: 20px;
             text-align: center;
+            margin-bottom: 20px;
         }
 
-        h2 {
-            font-size: 1.8rem;
-            margin: 25px 0 15px;
-        }
+        h1 { font-size: 2.5rem; }
+        h2 { font-size: 1.8rem; }
 
-        p {
-            font-size: 16px;
-            margin-bottom: 15px;
-        }
-
-        /* Connection Panel */
         .connection-panel {
             background: rgba(30, 41, 59, 0.8);
             padding: 25px;
             border-radius: 20px;
             margin-bottom: 30px;
             display: flex;
-            flex-wrap: wrap;
             gap: 20px;
             align-items: center;
-            justify-content: space-between;
-            backdrop-filter: blur(10px);
-        }
-
-        .input-group {
-            display: flex;
-            gap: 15px;
-            flex: 1;
-            min-width: 300px;
+            justify-content: center;
+            flex-wrap: wrap;
         }
 
         input {
@@ -80,7 +55,7 @@
             background: rgba(255, 255, 255, 0.1);
             color: white;
             font-size: 16px;
-            flex: 1;
+            width: 300px;
         }
 
         button {
@@ -89,8 +64,8 @@
             border-radius: 10px;
             font-weight: bold;
             cursor: pointer;
-            transition: all 0.3s ease;
             font-size: 16px;
+            transition: all 0.3s ease;
         }
 
         .btn-connect {
@@ -103,25 +78,14 @@
             box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4);
         }
 
-        .btn-demo {
-            background: linear-gradient(to right, #a855f7, #d946ef);
-            color: white;
-        }
-
-        .btn-demo:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(168, 85, 247, 0.4);
-        }
-
         .status-badge {
-            display: flex;
-            align-items: center;
-            gap: 10px;
             padding: 10px 20px;
             border-radius: 20px;
             font-weight: bold;
-            min-width: 150px;
-            justify-content: center;
+            border: 2px solid;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
         .status-dot {
@@ -132,36 +96,15 @@
         }
 
         @keyframes pulse {
-            0% { opacity: 1; }
+            0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
-            100% { opacity: 1; }
         }
 
-        .status-connected {
-            background: rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-            border: 1px solid #22c55e;
-        }
-
-        .status-offline {
-            background: rgba(239, 68, 68, 0.2);
-            color: #ef4444;
-            border: 1px solid #ef4444;
-        }
-
-        .status-connecting {
-            background: rgba(251, 191, 36, 0.2);
-            color: #fbbf24;
-            border: 1px solid #fbbf24;
-        }
-
-        /* AI Chat Section */
         .ai-chat-card {
             background: rgba(30, 41, 59, 0.8);
             padding: 30px;
             border-radius: 20px;
             margin-bottom: 30px;
-            backdrop-filter: blur(10px);
         }
 
         .ai-buttons {
@@ -176,9 +119,6 @@
             color: white;
             padding: 15px 40px;
             font-size: 18px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
         }
 
         .btn-text {
@@ -186,38 +126,8 @@
             color: white;
             padding: 15px 40px;
             font-size: 18px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
         }
 
-        .listening-indicator {
-            display: none;
-            background: rgba(236, 72, 153, 0.2);
-            border: 2px solid #ec4899;
-            padding: 20px;
-            border-radius: 15px;
-            margin-top: 20px;
-            text-align: center;
-            animation: fadeIn 0.5s ease;
-        }
-
-        .listening-dot {
-            width: 20px;
-            height: 20px;
-            background: #ec4899;
-            border-radius: 50%;
-            display: inline-block;
-            margin: 0 5px;
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        /* Stats Cards */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -230,65 +140,20 @@
             padding: 25px;
             border-radius: 20px;
             text-align: center;
-            backdrop-filter: blur(5px);
-            transition: transform 0.3s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
         }
 
         .stat-value {
             font-size: 2.5rem;
             font-weight: bold;
             margin: 15px 0;
+            color: #60a5fa;
         }
 
-        .stat-label {
-            font-size: 18px;
-            opacity: 0.9;
-        }
-
-        .progress-container {
-            width: 100%;
-            height: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 5px;
-            margin-top: 15px;
-            overflow: hidden;
-        }
-
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(to right, #3b82f6, #60a5fa);
-            border-radius: 5px;
-            transition: width 0.5s ease;
-        }
-
-        /* Charts Section */
-        .charts-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 30px;
-            margin-bottom: 30px;
-        }
-
-        .chart-container {
-            background: rgba(30, 41, 59, 0.7);
-            padding: 25px;
-            border-radius: 20px;
-            backdrop-filter: blur(5px);
-            height: 300px;
-            position: relative;
-        }
-
-        /* Table */
         .table-container {
             background: rgba(30, 41, 59, 0.7);
             padding: 25px;
             border-radius: 20px;
             margin-bottom: 30px;
-            backdrop-filter: blur(5px);
             overflow-x: auto;
         }
 
@@ -303,74 +168,11 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        th {
-            font-weight: bold;
-            font-size: 18px;
-        }
-
-        tr:nth-child(even) {
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .status-dot-green {
-            width: 12px;
-            height: 12px;
-            background: #22c55e;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 10px;
-        }
-
-        .status-dot-gray {
-            width: 12px;
-            height: 12px;
-            background: #9ca3af;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 10px;
-        }
-
-        .book-present {
-            background: rgba(34, 197, 94, 0.1);
-        }
-
-        /* Insights Card */
-        .insights-card {
-            background: rgba(30, 41, 59, 0.7);
-            padding: 25px;
-            border-radius: 20px;
-            margin-bottom: 30px;
-            backdrop-filter: blur(5px);
-        }
-
-        .insight-item {
-            padding: 15px;
-            margin: 10px 0;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .insight-icon {
-            font-size: 1.5rem;
-        }
-
-        /* Controls */
         .controls {
             display: flex;
             gap: 20px;
-            flex-wrap: wrap;
             margin-bottom: 30px;
-        }
-
-        .btn-control {
-            padding: 12px 25px;
-            border-radius: 10px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
+            flex-wrap: wrap;
         }
 
         .btn-sync {
@@ -378,104 +180,48 @@
             color: #1f2937;
         }
 
-        .btn-export {
-            background: linear-gradient(to right, #8b5cf6, #a78bfa);
-            color: white;
-        }
-
         .btn-reset {
             background: linear-gradient(to right, #ef4444, #f87171);
             color: white;
         }
 
-        /* Notifications */
-        .notification {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 15px 25px;
-            background: rgba(34, 197, 94, 0.9);
-            color: white;
-            border-radius: 10px;
-            z-index: 1000;
-            transform: translateX(150%);
-            transition: transform 0.5s ease;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        .listening-indicator {
+            display: none;
+            background: rgba(236, 72, 153, 0.2);
+            border: 2px solid #ec4899;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 20px;
+            text-align: center;
         }
 
-        .notification.show {
-            transform: translateX(0);
-        }
-
-        /* Responsive Design */
-        @media (max-width: 768px) {
-            .connection-panel {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .input-group {
-                min-width: auto;
-            }
-
-            .ai-buttons {
-                flex-direction: column;
-            }
-
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .charts-grid {
-                grid-template-columns: 1fr;
-            }
-
-            button {
-                width: 100%;
-            }
-        }
-
-        @media (max-width: 480px) {
-            body {
-                padding: 10px;
-            }
-
-            h1 {
-                font-size: 2rem;
-            }
-
-            .stat-value {
-                font-size: 2rem;
-            }
-
-            .btn-voice, .btn-text {
-                padding: 12px 20px;
-                font-size: 16px;
-            }
+        .listening-dot {
+            width: 20px;
+            height: 20px;
+            background: #ec4899;
+            border-radius: 50%;
+            display: inline-block;
+            margin: 0 5px;
+            animation: pulse 1.5s infinite;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📚 BookBuddy Dashboard</h1>
+        <h1>📚 BookBuddy Dashboard V4</h1>
 
-        <!-- Connection Panel -->
         <div class="connection-panel">
-            <div class="input-group">
-                <input type="text" id="ipInput" placeholder="Enter ESP32 IP (e.g., 10.152.138.159)" value="10.152.138.159">
-                <button class="btn-connect" id="connectBtn">Connect</button>
-                <button class="btn-demo" id="demoBtn">Demo Mode</button>
-            </div>
-            <div class="status-badge status-offline" id="statusBadge">
-                <span class="status-dot"></span>
+            <input type="text" id="ipInput" placeholder="Enter ESP32 IP (e.g., 192.168.1.100)">
+            <button class="btn-connect" id="connectBtn">Connect</button>
+            <div class="status-badge" id="statusBadge" style="border-color: #ef4444; color: #ef4444;">
+                <span class="status-dot" style="background: #ef4444;"></span>
                 Offline
             </div>
         </div>
 
-        <!-- AI Chat Section -->
         <div class="ai-chat-card">
-            <h2>🤖 Ask BookBuddy AI Anything!</h2>
-            <p>Need help with English, Hindi, Maths, Marathi, or Science? BookBuddy AI is here to help you!</p>
+            <h2>🤖 Ask BookBuddy AI!</h2>
+            <p>Need help with English, Hindi, Maths, Marathi, or Science?</p>
             <div class="ai-buttons">
                 <button class="btn-voice" id="voiceBtn">🎤 Talk to BookBuddy</button>
                 <button class="btn-text" id="textBtn">💬 Chat with BookBuddy</button>
@@ -484,58 +230,29 @@
                 <div class="listening-dot"></div>
                 <div class="listening-dot" style="animation-delay: 0.3s;"></div>
                 <div class="listening-dot" style="animation-delay: 0.6s;"></div>
-                <p style="margin-top: 15px; font-size: 18px;">Listening... Speak now!</p>
+                <p style="margin-top: 15px;">Listening... Speak now!</p>
             </div>
         </div>
 
-        <!-- Live Statistics Cards -->
         <div class="stats-grid">
             <div class="stat-card">
                 <h3>📚 Books Placed</h3>
                 <div class="stat-value" id="bookCount">0/5</div>
-                <div class="progress-container">
-                    <div class="progress-bar" id="bookProgress" style="width: 0%;"></div>
-                </div>
-                <p class="stat-label">Out of 5 subjects</p>
             </div>
             <div class="stat-card">
-                <h3>😊 Current Emotion</h3>
+                <h3>😊 Emotion</h3>
                 <div class="stat-value" id="emotion">-</div>
-                <p class="stat-label">How BookBuddy feels</p>
             </div>
             <div class="stat-card">
-                <h3>🕐 Device Time</h3>
-                <div class="stat-value" id="deviceTime">--:--</div>
-                <p class="stat-label">ESP32 Real-Time Clock</p>
+                <h3>🕐 Time</h3>
+                <div class="stat-value" id="deviceTime">--:--:--</div>
             </div>
             <div class="stat-card">
-                <h3>⏱️ Total Study Time</h3>
+                <h3>⏱️ Total Time</h3>
                 <div class="stat-value" id="totalTime">0m</div>
-                <p class="stat-label">All subjects combined</p>
             </div>
         </div>
 
-        <!-- Charts Section -->
-        <div class="charts-grid">
-            <div class="chart-container">
-                <h3>Reading Progress</h3>
-                <canvas id="barChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <h3>Study Pattern Timeline</h3>
-                <canvas id="lineChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <h3>Subject Distribution</h3>
-                <canvas id="pieChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <h3>Books Over Time</h3>
-                <canvas id="areaChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Subject Tracker Table -->
         <div class="table-container">
             <h2>📖 Subject Tracker</h2>
             <table>
@@ -546,805 +263,195 @@
                         <th>Total Time</th>
                     </tr>
                 </thead>
-                <tbody id="bookTable">
-                    <!-- Rows will be populated by JavaScript -->
-                </tbody>
+                <tbody id="bookTable"></tbody>
             </table>
         </div>
 
-        <!-- Study Pattern Insights -->
-        <div class="insights-card">
-            <h2>✨ Study Pattern Insights</h2>
-            <div class="insight-item">
-                <span class="insight-icon">🏆</span>
-                <span id="mostStudied">You've spent the most time on: -</span>
-            </div>
-            <div class="insight-item">
-                <span class="insight-icon">🔥</span>
-                <span id="streak">Great! - subjects studied today</span>
-            </div>
-            <div class="insight-item">
-                <span class="insight-icon">⏱️</span>
-                <span id="average">Average study time: - per subject</span>
-            </div>
-            <div class="insight-item">
-                <span class="insight-icon">⏰</span>
-                <span id="peakTime">You study best between: -</span>
-            </div>
-            <div class="insight-item">
-                <span class="insight-icon">💡</span>
-                <span id="recommendation">Try spending more time on - to balance your subjects</span>
-            </div>
-        </div>
-
-        <!-- Controls -->
         <div class="controls">
-            <button class="btn-control btn-sync" id="syncBtn">Sync RTC Time</button>
-            <button class="btn-control btn-export" id="exportBtn">Export Data</button>
-            <button class="btn-control btn-reset" id="resetBtn">Reset Stats</button>
+            <button class="btn-sync" id="syncBtn">Sync RTC Time</button>
+            <button class="btn-reset" id="resetBtn">Reset Stats</button>
         </div>
     </div>
 
-    <!-- Notification -->
-    <div class="notification" id="notification"></div>
-
     <script>
-        // DOM Elements
+        // CHANGE THIS TO YOUR ESP32 IP
+        let ESP32_IP = '';
+        let ws = null;
+
         const ipInput = document.getElementById('ipInput');
         const connectBtn = document.getElementById('connectBtn');
-        const demoBtn = document.getElementById('demoBtn');
         const statusBadge = document.getElementById('statusBadge');
         const voiceBtn = document.getElementById('voiceBtn');
         const textBtn = document.getElementById('textBtn');
         const listeningIndicator = document.getElementById('listeningIndicator');
-        const bookCountEl = document.getElementById('bookCount');
-        const bookProgressEl = document.getElementById('bookProgress');
-        const emotionEl = document.getElementById('emotion');
-        const deviceTimeEl = document.getElementById('deviceTime');
-        const totalTimeEl = document.getElementById('totalTime');
-        const bookTableEl = document.getElementById('bookTable');
-        const mostStudiedEl = document.getElementById('mostStudied');
-        const streakEl = document.getElementById('streak');
-        const averageEl = document.getElementById('average');
-        const peakTimeEl = document.getElementById('peakTime');
-        const recommendationEl = document.getElementById('recommendation');
         const syncBtn = document.getElementById('syncBtn');
-        const exportBtn = document.getElementById('exportBtn');
         const resetBtn = document.getElementById('resetBtn');
-        const notificationEl = document.getElementById('notification');
 
-        // Chart instances
-        let barChart, lineChart, pieChart, areaChart;
-
-        // WebSocket and Demo variables
-        let ws = null;
-        let demoInterval = null;
-        let timelineData = [];
-        let ESP32_IP = "10.152.138.159";
-        let isConnected = false;
-
-        // Initialize charts
-        function initCharts() {
-            // Bar Chart
-            const barCtx = document.getElementById('barChart').getContext('2d');
-            barChart = new Chart(barCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['English', 'Hindi', 'Maths', 'Marathi', 'Science'],
-                    datasets: [{
-                        label: 'Reading Time (minutes)',
-                        data: [0, 0, 0, 0, 0],
-                        backgroundColor: [
-                            'rgba(96, 165, 250, 0.7)',  // English - Blue
-                            'rgba(251, 146, 60, 0.7)',  // Hindi - Orange
-                            'rgba(167, 139, 250, 0.7)', // Maths - Purple
-                            'rgba(52, 211, 153, 0.7)',  // Marathi - Green
-                            'rgba(251, 191, 36, 0.7)'   // Science - Amber
-                        ],
-                        borderColor: '#fff',
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: { beginAtZero: true }
-                    },
-                    animation: {
-                        duration: 300
-                    }
-                }
-            });
-
-            // Line Chart
-            const lineCtx = document.getElementById('lineChart').getContext('2d');
-            lineChart = new Chart(lineCtx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Total Study Time (seconds)',
-                        data: [],
-                        borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                        fill: true,
-                        tension: 0.3
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: { beginAtZero: true }
-                    },
-                    animation: {
-                        duration: 300
-                    }
-                }
-            });
-
-            // Pie Chart
-            const pieCtx = document.getElementById('pieChart').getContext('2d');
-            pieChart = new Chart(pieCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['English', 'Hindi', 'Maths', 'Marathi', 'Science'],
-                    datasets: [{
-                        data: [0, 0, 0, 0, 0],
-                        backgroundColor: [
-                            'rgba(96, 165, 250, 0.7)',  // English - Blue
-                            'rgba(251, 146, 60, 0.7)',  // Hindi - Orange
-                            'rgba(167, 139, 250, 0.7)', // Maths - Purple
-                            'rgba(52, 211, 153, 0.7)',  // Marathi - Green
-                            'rgba(251, 191, 36, 0.7)'   // Science - Amber
-                        ],
-                        borderColor: '#fff',
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: {
-                        duration: 300
-                    }
-                }
-            });
-
-            // Area Chart
-            const areaCtx = document.getElementById('areaChart').getContext('2d');
-            areaChart = new Chart(areaCtx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Books on Rack',
-                        data: [],
-                        borderColor: '#fbbf24',
-                        backgroundColor: 'rgba(251, 191, 36, 0.3)',
-                        fill: true,
-                        stepped: true,
-                        tension: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: { 
-                            beginAtZero: true,
-                            max: 5
-                        }
-                    },
-                    animation: {
-                        duration: 300
-                    }
-                }
-            });
-        }
-
-        // Format duration in seconds to human readable format
-        function formatDuration(seconds) {
-            if (seconds < 60) {
-                return `${Math.floor(seconds)}s`;
-            } else if (seconds < 3600) {
-                return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
-            } else {
-                const hours = Math.floor(seconds / 3600);
-                const minutes = Math.floor((seconds % 3600) / 60);
-                return `${hours}h ${minutes}m`;
-            }
-        }
-
-        // Update dashboard with new data
-        function updateDashboard(data) {
-            // Update stats
-            bookCountEl.textContent = `${data.booksPlaced}/5`;
-            bookProgressEl.style.width = `${(data.booksPlaced / 5) * 100}%`;
-            emotionEl.textContent = data.emotion;
-            
-            // Format device time
-            if (data.time) {
-                const date = new Date(data.time);
-                deviceTimeEl.textContent = date.toLocaleTimeString();
-            }
-            
-            totalTimeEl.textContent = formatDuration(data.totalStudySeconds);
-
-            // Update charts
-            updateBarChart(data.books);
-            updateLineChart(data);
-            updatePieChart(data.books);
-            updateAreaChart(data);
-
-            // Update table
-            updateBookTable(data.books);
-
-            // Generate insights
-            updateInsights(data.books);
-        }
-
-        // Update bar chart
-        function updateBarChart(books) {
-            const subjectMap = {
-                'English': 0,
-                'Hindi': 1,
-                'Maths': 2,
-                'Marathi': 3,
-                'Science': 4
-            };
-
-            const newData = [0, 0, 0, 0, 0];
-            books.forEach(book => {
-                if (subjectMap[book.name] !== undefined) {
-                    newData[subjectMap[book.name]] = Math.floor(book.totalSeconds / 60);
-                }
-            });
-
-            barChart.data.datasets[0].data = newData;
-            barChart.update();
-        }
-
-        // Update line chart
-        function updateLineChart(data) {
-            const now = new Date();
-            const timeLabel = now.getHours().toString().padStart(2, '0') + ':' + 
-                             now.getMinutes().toString().padStart(2, '0');
-            
-            // Keep only last 10 entries for performance
-            if (timelineData.length >= 10) {
-                timelineData.shift();
-                lineChart.data.labels.shift();
-                lineChart.data.datasets[0].data.shift();
-            }
-            
-            timelineData.push({
-                time: timeLabel,
-                total: data.totalStudySeconds
-            });
-            
-            lineChart.data.labels.push(timeLabel);
-            lineChart.data.datasets[0].data.push(data.totalStudySeconds);
-            lineChart.update();
-        }
-
-        // Update pie chart
-        function updatePieChart(books) {
-            const subjectMap = {
-                'English': 0,
-                'Hindi': 1,
-                'Maths': 2,
-                'Marathi': 3,
-                'Science': 4
-            };
-
-            const newData = [0, 0, 0, 0, 0];
-            books.forEach(book => {
-                if (subjectMap[book.name] !== undefined) {
-                    newData[subjectMap[book.name]] = book.totalSeconds;
-                }
-            });
-
-            pieChart.data.datasets[0].data = newData;
-            pieChart.update();
-        }
-
-        // Update area chart
-        function updateAreaChart(data) {
-            const now = new Date();
-            const timeLabel = now.getHours().toString().padStart(2, '0') + ':' + 
-                             now.getMinutes().toString().padStart(2, '0');
-            
-            // Keep only last 10 entries for performance
-            if (areaChart.data.labels.length >= 10) {
-                areaChart.data.labels.shift();
-                areaChart.data.datasets[0].data.shift();
-            }
-            
-            areaChart.data.labels.push(timeLabel);
-            areaChart.data.datasets[0].data.push(data.booksPlaced);
-            areaChart.update();
-        }
-
-        // Update book table
-        function updateBookTable(books) {
-            bookTableEl.innerHTML = '';
-            
-            const subjectIcons = {
-                'English': '📖',
-                'Hindi': '📕',
-                'Maths': '📐',
-                'Marathi': '📗',
-                'Science': '🔬'
-            };
-            
-            books.forEach(book => {
-                const row = document.createElement('tr');
-                if (book.present) {
-                    row.classList.add('book-present');
-                }
-                
-                const statusDot = book.present ? 
-                    '<span class="status-dot-green"></span>On Rack' : 
-                    '<span class="status-dot-gray"></span>Removed';
-                
-                row.innerHTML = `
-                    <td>${subjectIcons[book.name] || '📚'} ${book.name}</td>
-                    <td>${statusDot}</td>
-                    <td>${formatDuration(book.totalSeconds)}</td>
-                `;
-                
-                bookTableEl.appendChild(row);
-            });
-        }
-
-        // Generate insights
-        function updateInsights(books) {
-            // Filter out books with no study time
-            const activeBooks = books.filter(b => b.totalSeconds > 0);
-            
-            if (activeBooks.length === 0) {
-                mostStudiedEl.textContent = "You haven't started studying yet!";
-                streakEl.textContent = "Place a book on the rack to begin!";
-                averageEl.textContent = "Average study time: -";
-                peakTimeEl.textContent = "You study best between: -";
-                recommendationEl.textContent = "Start with any subject you like!";
-                return;
-            }
-            
-            // Find most studied
-            const sorted = [...activeBooks].sort((a, b) => b.totalSeconds - a.totalSeconds);
-            const mostStudied = sorted[0];
-            mostStudiedEl.textContent = `You've spent the most time on: ${mostStudied.name} (${formatDuration(mostStudied.totalSeconds)})`;
-            
-            // Study streak
-            streakEl.textContent = `Great! ${activeBooks.length} subjects studied today`;
-            
-            // Calculate averages
-            const avgTime = activeBooks.reduce((a, b) => a + b.totalSeconds, 0) / activeBooks.length;
-            averageEl.textContent = `Average study time: ${formatDuration(avgTime)} per subject`;
-            
-            // Peak study time (placeholder - would need historical data)
-            peakTimeEl.textContent = "You study best between: 4 PM - 6 PM";
-            
-            // Recommendation
-            const leastStudied = sorted[sorted.length - 1];
-            recommendationEl.textContent = `Try spending more time on ${leastStudied.name} to balance your subjects`;
-        }
-
-        // Show notification
-        function showNotification(message) {
-            notificationEl.textContent = message;
-            notificationEl.classList.add('show');
-            
-            setTimeout(() => {
-                notificationEl.classList.remove('show');
-            }, 3000);
+        // Load saved IP
+        const savedIP = localStorage.getItem('esp32_ip');
+        if (savedIP) {
+            ipInput.value = savedIP;
         }
 
         // Connect to ESP32
-        function connectToDevice() {
-            ESP32_IP = ipInput.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-            
+        connectBtn.addEventListener('click', () => {
+            ESP32_IP = ipInput.value.trim();
             if (!ESP32_IP) {
-                alert('Please enter a valid IP address');
+                alert('Please enter ESP32 IP address');
                 return;
             }
-            
-            // Update status
-            statusBadge.className = 'status-badge status-connecting';
-            statusBadge.innerHTML = '<span class="status-dot"></span>Connecting...';
-            
-            // Try WebSocket first
-            try {
-                ws = new WebSocket(`ws://${ESP32_IP}/ws`);
-                
-                ws.onopen = () => {
-                    isConnected = true;
-                    statusBadge.className = 'status-badge status-connected';
-                    statusBadge.innerHTML = '<span class="status-dot"></span>Connected';
-                    showNotification('✅ Connected to BookBuddy device!');
-                    
-                    // Stop demo mode if running
-                    if (demoInterval) {
-                        clearInterval(demoInterval);
-                        demoInterval = null;
-                    }
-                };
-                
-                ws.onmessage = (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        updateDashboard(data);
-                    } catch (error) {
-                        console.error('Error parsing WebSocket message:', error);
-                    }
-                };
-                
-                ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
-                    fallbackToHTTP();
-                };
-                
-                ws.onclose = () => {
-                    isConnected = false;
-                    statusBadge.className = 'status-badge status-offline';
-                    statusBadge.innerHTML = '<span class="status-dot"></span>Offline';
-                    showNotification('⚠️ Connection lost. Attempting to reconnect...');
-                    
-                    // Try to reconnect after 3 seconds
-                    setTimeout(() => {
-                        if (!demoInterval) {
-                            connectToDevice();
-                        }
-                    }, 3000);
-                };
-            } catch (error) {
-                console.error('WebSocket connection failed:', error);
-                fallbackToHTTP();
-            }
-        }
 
-        // Fallback to HTTP polling
-        function fallbackToHTTP() {
-            statusBadge.className = 'status-badge status-connecting';
-            statusBadge.innerHTML = '<span class="status-dot"></span>Falling back to HTTP...';
-            
-            const poll = async () => {
-                try {
-                    const response = await fetch(`http://${ESP32_IP}/api/status`, {
-                        method: 'GET',
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        const data = await response.json();
-                        isConnected = true;
-                        statusBadge.className = 'status-badge status-connected';
-                        statusBadge.innerHTML = '<span class="status-dot"></span>Connected (HTTP)';
-                        updateDashboard(data);
-                        
-                        // Continue polling every 3 seconds
-                        setTimeout(poll, 3000);
-                    } else {
-                        throw new Error('HTTP request failed');
-                    }
-                } catch (error) {
-                    console.error('HTTP polling error:', error);
-                    isConnected = false;
-                    statusBadge.className = 'status-badge status-offline';
-                    statusBadge.innerHTML = '<span class="status-dot"></span>Offline';
-                    
-                    // Retry after 3 seconds
-                    setTimeout(poll, 3000);
-                }
+            localStorage.setItem('esp32_ip', ESP32_IP);
+            connectWebSocket();
+        });
+
+        function connectWebSocket() {
+            if (ws) ws.close();
+
+            statusBadge.style.borderColor = '#fbbf24';
+            statusBadge.style.color = '#fbbf24';
+            statusBadge.querySelector('.status-dot').style.background = '#fbbf24';
+            statusBadge.innerHTML = '<span class="status-dot" style="background: #fbbf24;"></span>Connecting...';
+
+            ws = new WebSocket(`ws://${ESP32_IP}/ws`);
+
+            ws.onopen = () => {
+                statusBadge.style.borderColor = '#22c55e';
+                statusBadge.style.color = '#22c55e';
+                statusBadge.querySelector('.status-dot').style.background = '#22c55e';
+                statusBadge.innerHTML = '<span class="status-dot" style="background: #22c55e;"></span>Connected';
             };
-            
-            // Start polling
-            poll();
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                updateDashboard(data);
+            };
+
+            ws.onerror = () => {
+                statusBadge.style.borderColor = '#ef4444';
+                statusBadge.style.color = '#ef4444';
+                statusBadge.querySelector('.status-dot').style.background = '#ef4444';
+                statusBadge.innerHTML = '<span class="status-dot" style="background: #ef4444;"></span>Error';
+            };
+
+            ws.onclose = () => {
+                statusBadge.style.borderColor = '#ef4444';
+                statusBadge.style.color = '#ef4444';
+                statusBadge.querySelector('.status-dot').style.background = '#ef4444';
+                statusBadge.innerHTML = '<span class="status-dot" style="background: #ef4444;"></span>Offline';
+                
+                setTimeout(connectWebSocket, 3000);
+            };
         }
 
-        // Start demo mode
-        function startDemoMode() {
-            // Stop any existing WebSocket connection
-            if (ws) {
-                ws.close();
-                ws = null;
+        function updateDashboard(data) {
+            document.getElementById('bookCount').textContent = `${data.booksPlaced}/5`;
+            document.getElementById('emotion').textContent = data.emotion;
+            
+            if (data.time) {
+                const time = new Date(data.time);
+                document.getElementById('deviceTime').textContent = time.toLocaleTimeString();
             }
-            
-            // Set status to connected (demo)
-            isConnected = true;
-            statusBadge.className = 'status-badge status-connected';
-            statusBadge.innerHTML = '<span class="status-dot"></span>Demo Mode';
-            showNotification('✅ Demo mode activated!');
-            
-            // Initialize demo data
-            let demoBooks = [
-                { name: 'English', present: false, totalSeconds: 0 },
-                { name: 'Hindi', present: false, totalSeconds: 0 },
-                { name: 'Maths', present: false, totalSeconds: 0 },
-                { name: 'Marathi', present: false, totalSeconds: 0 },
-                { name: 'Science', present: false, totalSeconds: 0 }
-            ];
-            
-            // Clear any existing demo interval
-            if (demoInterval) {
-                clearInterval(demoInterval);
-            }
-            
-            // Start demo updates
-            demoInterval = setInterval(() => {
-                // Randomly toggle one book's presence
-                const randomIndex = Math.floor(Math.random() * 5);
-                demoBooks[randomIndex].present = !demoBooks[randomIndex].present;
-                
-                // Increment time for present books
-                demoBooks.forEach(book => {
-                    if (book.present) {
-                        book.totalSeconds += Math.floor(Math.random() * 3) + 1; // 1-3 seconds
-                    }
-                });
-                
-                // Update emotion based on book count
-                const count = demoBooks.filter(b => b.present).length;
-                let emotion;
-                if (count >= 4) {
-                    emotion = 'Proud';
-                } else if (count >= 2) {
-                    emotion = 'Calm';
-                } else if (count === 1) {
-                    emotion = 'Happy';
-                } else {
-                    emotion = 'Sad';
+
+            const formatTime = (secs) => {
+                if (secs < 60) return `${secs}s`;
+                if (secs < 3600) {
+                    const m = Math.floor(secs / 60);
+                    const s = secs % 60;
+                    return `${m}m ${s}s`;
                 }
-                
-                // Calculate total study time
-                const totalStudySeconds = demoBooks.reduce((a, b) => a + b.totalSeconds, 0);
-                
-                // Create mock data object
-                const mockData = {
-                    status: 'live',
-                    uptime: Math.floor(Date.now() / 1000),
-                    emotion: emotion,
-                    booksPlaced: count,
-                    time: new Date().toISOString(),
-                    totalStudySeconds: totalStudySeconds,
-                    books: [...demoBooks]
-                };
-                
-                // Update dashboard
-                updateDashboard(mockData);
-            }, 2000);
+                const h = Math.floor(secs / 3600);
+                const m = Math.floor((secs % 3600) / 60);
+                return `${h}h ${m}m`;
+            };
+
+            document.getElementById('totalTime').textContent = formatTime(data.totalStudySeconds);
+
+            const tableBody = document.getElementById('bookTable');
+            tableBody.innerHTML = '';
+            
+            const icons = { English: '📖', Hindi: '📕', Maths: '📐', Marathi: '📗', Science: '🔬' };
+
+            data.books.forEach(book => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${icons[book.name]} ${book.name}</td>
+                    <td>${book.present ? '✅ On Rack' : '📖 Studying'}</td>
+                    <td>${formatTime(book.totalSeconds)}</td>
+                `;
+                tableBody.appendChild(row);
+            });
         }
 
-        // Open ChatGPT with context
-        function openChatGPTWithContext(userMessage = '') {
-            const systemPrompt = `You are BookBuddy, a warm and enthusiastic AI study companion for 9th grade Indian students.
-
-SUBJECTS YOU HELP WITH:
-- English (grammar, writing, literature)
-- Hindi (व्याकरण, लेखन, साहित्य)
-- Maths (algebra, geometry, arithmetic)
-- Marathi (व्याकरण, लेखन)
-- Science (physics, chemistry, biology)
-
-YOUR PERSONALITY:
-- Friendly and encouraging
-- Patient and supportive
-- Use simple, clear language
-- Give practical examples from daily life
-- Celebrate student progress
-- Make learning fun with emojis 📚✨
-- Break complex topics into easy steps
-
-YOUR TEACHING STYLE:
-1. Start with a warm greeting
-2. Understand the question fully
-3. Explain step-by-step with examples
-4. Provide practice problems when relevant
-5. End with encouragement and next steps
-
-IMPORTANT RULES:
-- Always be positive and supportive
-- Use age-appropriate language (9th grade level)
-- Relate concepts to real-world examples
-- If question is unclear, ask for clarification
-- Encourage independent thinking
-- Use mix of English and subject language when helpful
-
-Now respond to the student as BookBuddy!`;
-
-            const fullPrompt = userMessage 
-                ? `${systemPrompt}\n\nStudent asks: "${userMessage}"\n\nRespond as BookBuddy:`
-                : `${systemPrompt}\n\nGreet the student warmly as BookBuddy and ask how you can help them today!`;
+        // ChatGPT Integration
+        function openChatGPT(message = '') {
+            const context = `You are BookBuddy, a friendly AI tutor for 9th grade students. You help with English, Hindi, Maths, Marathi, and Science. You're warm, encouraging, patient, and make learning fun. Use simple language and practical examples.`;
             
-            const chatURL = `https://chatgpt.com/?model=gpt-4&q=${encodeURIComponent(fullPrompt)}`;
+            const prompt = message 
+                ? `${context}\n\nStudent: "${message}"\n\nRespond as BookBuddy:`
+                : `${context}\n\nGreet the student warmly!`;
             
-            window.open(chatURL, '_blank');
+            window.open(`https://chatgpt.com/?model=gpt-4&q=${encodeURIComponent(prompt)}`, '_blank');
         }
 
-        // Start voice recognition
-        function startVoiceChat() {
-            // Check browser support
+        voiceBtn.addEventListener('click', () => {
             if (!('webkitSpeechRecognition' in window)) {
-                alert('Voice recognition not supported in this browser. Please use Chrome or Edge.');
+                alert('Voice not supported. Use Chrome/Edge.');
                 return;
             }
-            
-            // Show listening indicator
+
             listeningIndicator.style.display = 'block';
-            
-            // Initialize speech recognition
+
             const recognition = new webkitSpeechRecognition();
             recognition.lang = 'en-IN';
-            recognition.continuous = false;
-            recognition.interimResults = false;
-            
-            // Start listening
             recognition.start();
-            
+
             recognition.onresult = (event) => {
                 const transcript = event.results[0][0].transcript;
                 listeningIndicator.style.display = 'none';
-                openChatGPTWithContext(transcript);
+                openChatGPT(transcript);
             };
-            
-            recognition.onerror = (event) => {
-                listeningIndicator.style.display = 'none';
-                alert('Could not understand speech. Please try again or use text input.');
-                console.error('Speech recognition error:', event.error);
-            };
-            
-            recognition.onend = () => {
-                listeningIndicator.style.display = 'none';
-            };
-        }
 
-        // Sync RTC time
-        async function syncTime() {
-            if (!isConnected && !demoInterval) {
-                alert('Please connect to a device first');
+            recognition.onerror = () => {
+                listeningIndicator.style.display = 'none';
+                alert('Could not understand. Try again.');
+            };
+        });
+
+        textBtn.addEventListener('click', () => {
+            const question = prompt('Ask BookBuddy:');
+            if (question) openChatGPT(question);
+        });
+
+        syncBtn.addEventListener('click', async () => {
+            if (!ESP32_IP) {
+                alert('Connect to ESP32 first');
                 return;
             }
-            
+
             try {
                 const epoch = Math.floor(Date.now() / 1000);
-                const response = await fetch(`http://${ESP32_IP}/api/synctime`, {
+                await fetch(`http://${ESP32_IP}/api/synctime`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ epoch })
                 });
-                
-                const result = await response.json();
-                if (result.success) {
-                    showNotification(`✅ RTC synced to: ${result.newTime}`);
-                } else {
-                    showNotification('❌ Failed to sync RTC time');
-                }
-            } catch (error) {
-                console.error('Error syncing time:', error);
-                showNotification('❌ Error syncing RTC time');
-            }
-        }
-
-        // Export data
-        function exportData() {
-            // This would typically get data from your current state
-            // For demo purposes, we'll create sample CSV data
-            
-            let csvContent = "Subject,Status,Study Time (seconds)\n";
-            
-            // Get current book data (this would come from your actual data source)
-            const books = [
-                { name: 'English', present: true, totalSeconds: 2400 },
-                { name: 'Hindi', present: false, totalSeconds: 1500 },
-                { name: 'Maths', present: true, totalSeconds: 3600 },
-                { name: 'Marathi', present: false, totalSeconds: 900 },
-                { name: 'Science', present: true, totalSeconds: 1800 }
-            ];
-            
-            books.forEach(book => {
-                csvContent += `${book.name},${book.present ? 'On Rack' : 'Removed'},${book.totalSeconds}\n`;
-            });
-            
-            // Create download link
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.setAttribute('href', url);
-            link.setAttribute('download', 'bookbuddy_data.csv');
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            
-            showNotification('✅ Data exported successfully!');
-        }
-
-        // Reset stats
-        function resetStats() {
-            if (confirm('Are you sure you want to reset all statistics? This cannot be undone.')) {
-                // In a real implementation, this would call an API endpoint
-                // For demo, we'll just reset local data
-                
-                // Reset UI elements
-                bookCountEl.textContent = '0/5';
-                bookProgressEl.style.width = '0%';
-                emotionEl.textContent = 'Calm';
-                deviceTimeEl.textContent = '--:--';
-                totalTimeEl.textContent = '0m';
-                
-                // Reset charts
-                barChart.data.datasets[0].data = [0, 0, 0, 0, 0];
-                barChart.update();
-                
-                pieChart.data.datasets[0].data = [0, 0, 0, 0, 0];
-                pieChart.update();
-                
-                // Clear line and area chart data
-                lineChart.data.labels = [];
-                lineChart.data.datasets[0].data = [];
-                lineChart.update();
-                
-                areaChart.data.labels = [];
-                areaChart.data.datasets[0].data = [];
-                areaChart.update();
-                
-                // Reset table
-                bookTableEl.innerHTML = '';
-                
-                // Reset insights
-                mostStudiedEl.textContent = "You've spent the most time on: -";
-                streakEl.textContent = "Great! - subjects studied today";
-                averageEl.textContent = "Average study time: - per subject";
-                peakTimeEl.textContent = "You study best between: -";
-                recommendationEl.textContent = "Try spending more time on - to balance your subjects";
-                
-                showNotification('✅ Statistics reset successfully!');
-            }
-        }
-
-        // Event Listeners
-        connectBtn.addEventListener('click', connectToDevice);
-        demoBtn.addEventListener('click', startDemoMode);
-        voiceBtn.addEventListener('click', startVoiceChat);
-        textBtn.addEventListener('click', () => {
-            const question = prompt('Ask BookBuddy anything about your subjects:');
-            if (question && question.trim()) {
-                openChatGPTWithContext(question);
+                alert('✓ Time synced!');
+            } catch (e) {
+                alert('❌ Sync failed');
             }
         });
-        syncBtn.addEventListener('click', syncTime);
-        exportBtn.addEventListener('click', exportData);
-        resetBtn.addEventListener('click', resetStats);
 
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', () => {
-            initCharts();
-            
-            // Pre-populate with sample data for initial view
-            const sampleData = {
-                status: 'demo',
-                uptime: 12345,
-                emotion: 'Calm',
-                booksPlaced: 0,
-                time: new Date().toISOString(),
-                totalStudySeconds: 0,
-                books: [
-                    { name: 'English', present: false, totalSeconds: 0 },
-                    { name: 'Hindi', present: false, totalSeconds: 0 },
-                    { name: 'Maths', present: false, totalSeconds: 0 },
-                    { name: 'Marathi', present: false, totalSeconds: 0 },
-                    { name: 'Science', present: false, totalSeconds: 0 }
-                ]
-            };
-            
-            updateDashboard(sampleData);
+        resetBtn.addEventListener('click', async () => {
+            if (!confirm('Reset all stats?')) return;
+
+            try {
+                await fetch(`http://${ESP32_IP}/api/reset`, { method: 'POST' });
+                alert('✓ Stats reset!');
+            } catch (e) {
+                alert('❌ Reset failed');
+            }
         });
     </script>
 </body>
 </html>
-```
