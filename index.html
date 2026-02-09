@@ -38,6 +38,31 @@
     margin-bottom: 10px;
   }
   
+  .connection-box {
+    background: rgba(255,255,255,0.15);
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 20px;
+    padding: 20px;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  
+  .connection-box input {
+    padding: 12px 20px;
+    font-size: 1.2em;
+    border-radius: 10px;
+    border: 2px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+    width: 300px;
+    margin-right: 10px;
+    font-family: 'Times New Roman', Times, serif;
+  }
+  
+  .connection-box input::placeholder {
+    color: rgba(255,255,255,0.6);
+  }
+  
   .status-badge {
     display: inline-flex;
     align-items: center;
@@ -62,6 +87,12 @@
     color: #F44336;
   }
   
+  .status-badge.connecting {
+    background: rgba(255, 193, 7, 0.2);
+    border-color: #FFC107;
+    color: #FFC107;
+  }
+  
   .pulse-dot {
     width: 12px;
     height: 12px;
@@ -71,6 +102,7 @@
   
   .pulse-dot.green { background: #4CAF50; }
   .pulse-dot.red { background: #F44336; }
+  .pulse-dot.yellow { background: #FFC107; }
   
   @keyframes pulse {
     0%, 100% { opacity: 1; }
@@ -139,6 +171,16 @@
   .btn-primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
+  }
+  
+  .btn-connect {
+    background: linear-gradient(to right, #4CAF50, #45a049);
+    color: #fff;
+  }
+  
+  .btn-connect:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
   }
   
   .chart-container {
@@ -215,9 +257,16 @@
   <div class="header">
     <h1>📚 BOOKBUDDY DASHBOARD</h1>
     <p style="font-size:1.3em;">Your Smart Study Partner</p>
+    
+    <!-- Connection Input -->
+    <div class="connection-box">
+      <input type="text" id="ipInput" placeholder="Enter ESP32 IP (e.g., 192.168.1.100)">
+      <button class="btn btn-connect" onclick="connect()">Connect</button>
+    </div>
+    
     <div id="statusBadge" class="status-badge offline">
       <div id="statusDot" class="pulse-dot red"></div>
-      <span id="statusText">Connecting...</span>
+      <span id="statusText">Not Connected</span>
     </div>
   </div>
   
@@ -228,6 +277,10 @@
       <div class="stat-box">
         <div class="label">Books Placed</div>
         <div class="value" id="bookCount">--</div>
+      </div>
+      <div class="stat-box">
+        <div class="label">Emotion</div>
+        <div class="value" id="emotion" style="font-size:1.5em;">--</div>
       </div>
       <div class="stat-box">
         <div class="label">Current Time</div>
@@ -260,7 +313,7 @@
         </tr>
       </thead>
       <tbody id="booksTable">
-        <tr><td colspan="3" style="text-align:center;">Loading...</td></tr>
+        <tr><td colspan="3" style="text-align:center;">Connect to BookBuddy to see data...</td></tr>
       </tbody>
     </table>
   </div>
@@ -277,12 +330,15 @@
 </div>
 
 <script>
-  // ===== CONFIGURATION =====
-  const ESP32_IP = '10.152.138.159';  // YOUR ESP32 IP
-  const USE_WEBSOCKET = true;
-  
+  // ===== GLOBAL VARIABLES =====
+  let ESP32_IP = localStorage.getItem('esp32_ip') || '';
   let ws = null;
   let progressChart = null;
+  
+  // Load saved IP on page load
+  if (ESP32_IP) {
+    document.getElementById('ipInput').value = ESP32_IP;
+  }
   
   // Initialize Chart
   const ctx = document.getElementById('progressChart').getContext('2d');
@@ -338,7 +394,15 @@
     const statusText = document.getElementById('statusText');
     
     badge.className = 'status-badge ' + state;
-    dot.className = 'pulse-dot ' + (state === 'live' ? 'green' : 'red');
+    
+    if (state === 'live') {
+      dot.className = 'pulse-dot green';
+    } else if (state === 'connecting') {
+      dot.className = 'pulse-dot yellow';
+    } else {
+      dot.className = 'pulse-dot red';
+    }
+    
     statusText.textContent = text;
   }
   
@@ -346,51 +410,84 @@
     if (data.status === 'live') {
       updateStatus('live', 'BookBuddy is LIVE!');
       
+      // Books count
       document.getElementById('bookCount').textContent = (data.booksPlaced || 0) + ' / 5';
       
+      // Emotion
+      document.getElementById('emotion').textContent = data.emotion || '--';
+      
+      // RTC Time (show with seconds)
       if (data.time && data.time !== 'N/A') {
         const timePart = data.time.split('T')[1] || data.time;
         document.getElementById('rtcTime').textContent = timePart;
       }
       
-      const totalMins = Math.floor((data.totalStudySeconds || 0) / 60);
+      // Total study time
+      const totalSecs = data.totalStudySeconds || 0;
+      const totalMins = Math.floor(totalSecs / 60);
       const totalHours = Math.floor(totalMins / 60);
       const remMins = totalMins % 60;
+      const remSecs = totalSecs % 60;
       
+      let timeStr = '';
       if (totalHours > 0) {
-        document.getElementById('totalTime').textContent = totalHours + 'h ' + remMins + 'm';
+        timeStr = totalHours + 'h ' + remMins + 'm';
+      } else if (totalMins > 0) {
+        timeStr = totalMins + 'm ' + remSecs + 's';
       } else {
-        document.getElementById('totalTime').textContent = totalMins + 'm';
+        timeStr = totalSecs + 's';
       }
+      document.getElementById('totalTime').textContent = timeStr;
       
       // Update chart
       const chartData = [];
       const books = data.books || [];
+      
+      const bookOrder = { 'English': 0, 'Hindi': 1, 'Maths': 2, 'Marathi': 3, 'Science': 4 };
+      const chartArray = [0, 0, 0, 0, 0];
+      
       books.forEach(book => {
         const mins = Math.floor(book.totalSeconds / 60);
-        chartData.push(mins);
+        const index = bookOrder[book.name];
+        if (index !== undefined) {
+          chartArray[index] = mins;
+        }
       });
-      progressChart.data.datasets[0].data = chartData;
+      
+      progressChart.data.datasets[0].data = chartArray;
       progressChart.update();
       
       // Update table
       let tableHTML = '';
       books.forEach(book => {
         const statusClass = book.present ? 'on' : 'off';
-        const statusLabel = book.present ? 'On Rack' : 'Removed';
-        const mins = Math.floor(book.totalSeconds / 60);
+        const statusLabel = book.present ? 'On Rack' : 'Studying';
+        
+        const secs = book.totalSeconds;
+        const mins = Math.floor(secs / 60);
         const hours = Math.floor(mins / 60);
         const remMin = mins % 60;
+        const remSec = secs % 60;
         
         let timeStr = '';
         if (hours > 0) {
           timeStr = hours + 'h ' + remMin + 'm';
+        } else if (mins > 0) {
+          timeStr = mins + 'm ' + remSec + 's';
         } else {
-          timeStr = mins + 'm';
+          timeStr = secs + 's';
         }
         
+        const icons = {
+          'English': '📖',
+          'Hindi': '📕',
+          'Maths': '📐',
+          'Marathi': '📗',
+          'Science': '🔬'
+        };
+        
         tableHTML += `<tr>
-          <td><strong>${book.name}</strong></td>
+          <td>${icons[book.name] || '📚'} <strong>${book.name}</strong></td>
           <td><span class="status-dot ${statusClass}"></span>${statusLabel}</td>
           <td>${timeStr}</td>
         </tr>`;
@@ -399,19 +496,38 @@
     }
   }
   
-  function connectWebSocket() {
-    if (!USE_WEBSOCKET || !ESP32_IP) {
-      fetchData();
-      setInterval(fetchData, 3000);
+  function connect() {
+    ESP32_IP = document.getElementById('ipInput').value.trim();
+    
+    if (!ESP32_IP) {
+      alert('Please enter ESP32 IP address!');
       return;
     }
     
-    updateStatus('offline', 'Connecting...');
+    // Save IP to localStorage
+    localStorage.setItem('esp32_ip', ESP32_IP);
+    
+    // Close existing connection
+    if (ws) {
+      ws.close();
+    }
+    
+    // Connect WebSocket
+    connectWebSocket();
+  }
+  
+  function connectWebSocket() {
+    if (!ESP32_IP) {
+      updateStatus('offline', 'No IP Address');
+      return;
+    }
+    
+    updateStatus('connecting', 'Connecting...');
     
     ws = new WebSocket(`ws://${ESP32_IP}/ws`);
     
     ws.onopen = () => {
-      console.log('WebSocket connected');
+      console.log('✓ WebSocket connected');
       updateStatus('live', 'Connected!');
     };
     
@@ -432,34 +548,20 @@
     ws.onclose = () => {
       console.log('WebSocket closed');
       updateStatus('offline', 'Disconnected');
-      setTimeout(connectWebSocket, 3000);
+      
+      // Auto-reconnect after 3 seconds
+      setTimeout(() => {
+        if (ESP32_IP) {
+          console.log('Attempting to reconnect...');
+          connectWebSocket();
+        }
+      }, 3000);
     };
-  }
-  
-  async function fetchData() {
-    if (!ESP32_IP) {
-      updateStatus('offline', 'Please set ESP32 IP');
-      return;
-    }
-    
-    try {
-      const response = await fetch(`http://${ESP32_IP}/api/status`, {
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      if (!response.ok) throw new Error('HTTP error');
-      
-      const data = await response.json();
-      updateUI(data);
-      
-    } catch (error) {
-      updateStatus('offline', 'ESP32 Offline');
-    }
   }
   
   async function syncTime() {
     if (!ESP32_IP) {
-      alert('Please set ESP32 IP address');
+      alert('Please connect to BookBuddy first!');
       return;
     }
     
@@ -479,7 +581,6 @@
       if (data.success) {
         resultDiv.className = 'success';
         resultDiv.textContent = '✅ RTC synced to: ' + data.newTime;
-        setTimeout(() => fetchData(), 1000);
       } else {
         throw new Error(data.error || 'Sync failed');
       }
@@ -493,8 +594,11 @@
     setTimeout(() => { resultDiv.style.display = 'none'; }, 5000);
   }
   
-  // Initialize
-  connectWebSocket();
+  // Auto-connect if IP is saved
+  if (ESP32_IP) {
+    console.log('Auto-connecting to saved IP:', ESP32_IP);
+    connectWebSocket();
+  }
 </script>
 
 </body>
