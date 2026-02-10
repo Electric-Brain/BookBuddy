@@ -1,21 +1,30 @@
 /*
- * ╔══════════════════════════════════════════════════════════════╗
- * ║              BookBuddy V1 - Production Firmware             ║
- * ║                                                              ║
- * ║  Complete rewrite with:                                      ║
- * ║  ✓ Robust WebSocket with heartbeat & reconnection           ║
- * ║  ✓ Full REST API (status, settings, commands, history)      ║
- * ║  ✓ Embedded full-fledge dashboard (no external hosting)     ║
- * ║  ✓ mDNS support (bookbuddy.local)                          ║
- * ║  ✓ Persistent settings via Preferences                     ║
- * ║  ✓ Proper state machine with clean transitions              ║
- * ║  ✓ Non-blocking everything                                  ║
- * ║  ✓ Detailed logging & error handling                        ║
- * ║  ✓ OTA update support                                       ║
- * ║                                                              ║
- * ║  Display: ILI9488 480x320 Landscape                         ║
- * ║  Pins: See PIN DEFINITIONS section                          ║
- * ╚══════════════════════════════════════════════════════════════╝
+ * ╔══════════════════════════════════════════════════════════════════╗
+ * ║           BookBuddy V1.0 - Production Firmware                  ║
+ * ║                                                                  ║
+ * ║  Hardware: ESP32 + ILI9488 3.5" (480x320) + DS3231 RTC          ║
+ * ║           + DFPlayer Mini + 5 Book Switches + Touch + Buzzer     ║
+ * ║                                                                  ║
+ * ║  FIXES APPLIED:                                                  ║
+ * ║  ✓ Professional UI with clean text rendering                    ║
+ * ║  ✓ FIXED face expressions (no more evil smile)                  ║
+ * ║  ✓ Proper emotion curves with clamped values                    ║
+ * ║  ✓ New logic: books REMOVED = studying = happiness upgrade      ║
+ * ║  ✓ 5-stage degradation every 5 min if no activity               ║
+ * ║  ✓ NTP → RTC time sync with battery backup                     ║
+ * ║  ✓ Full embedded dashboard with 4 tabs                          ║
+ * ║  ✓ WebSocket bidirectional commands                             ║
+ * ║  ✓ Persistent settings (NVS)                                    ║
+ * ║  ✓ Event history (50 entries)                                    ║
+ * ║  ✓ OTA firmware update                                           ║
+ * ║  ✓ mDNS (bookbuddy.local)                                       ║
+ * ║  ✓ Non-blocking debounce on all inputs                          ║
+ * ║                                                                  ║
+ * ║  WIRING:                                                         ║
+ * ║  TFT: SPI (User_Setup.h)  │  RTC: SDA=21, SCL=22              ║
+ * ║  DFPlayer: RX=5, TX=18    │  Touch: GPIO4                      ║
+ * ║  Books: 12,14,25,32,33    │  Buzzer: GPIO26                    ║
+ * ╚══════════════════════════════════════════════════════════════════╝
  */
 
 #include <Wire.h>
@@ -30,43 +39,83 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <Update.h>
+#include <time.h>  // For NTP
 
 // ══════════════════════════════════════════════════════════════
 //  CONFIGURATION
 // ══════════════════════════════════════════════════════════════
 
-const char* WIFI_SSID     = "20";
-const char* WIFI_PASS     = "12345678";
-const char* MDNS_NAME     = "bookbuddy";
-const char* FIRMWARE_VER  = "1.0.0";
-const char* DEVICE_NAME   = "BookBuddy";
+const char* WIFI_SSID    = "20";
+const char* WIFI_PASS    = "12345678";
+const char* MDNS_NAME    = "bookbuddy";
+const char* FW_VERSION   = "1.0.0";
+const char* DEVICE_NAME  = "BookBuddy";
+
+// NTP Configuration
+const char* NTP_SERVER1  = "pool.ntp.org";
+const char* NTP_SERVER2  = "time.google.com";
+const long  GMT_OFFSET   = 19800;  // IST = UTC+5:30 = 19800 seconds
+const int   DST_OFFSET   = 0;
 
 // ── Pin Definitions ──
-#define BTN_ENGLISH    12
-#define BTN_HINDI      14
-#define BTN_MATHS      25
-#define BTN_MARATHI    32
-#define BTN_SCIENCE    33
-#define TOUCH_SENSOR   4
-#define DFPLAYER_RX    5
-#define DFPLAYER_TX    18
-#define BUZZER_PIN     26
+#define PIN_ENGLISH    12
+#define PIN_HINDI      14
+#define PIN_MATHS      25
+#define PIN_MARATHI    32
+#define PIN_SCIENCE    33
+#define PIN_TOUCH      4
+#define PIN_DF_RX      5
+#define PIN_DF_TX      18
+#define PIN_BUZZER     26
 
-// ── Audio File Indices ──
+// ── Audio Track IDs ──
 namespace Audio {
-  const uint8_t HEY            = 1;
-  const uint8_t I_AM            = 2;
-  const uint8_t BOOKBUDDY      = 3;
-  const uint8_t YOUR_PARTNER   = 4;
-  const uint8_t TIME_TO_STUDY  = 5;
+  enum Track : uint8_t {
+    HEY             = 1,
+    I_AM            = 2,
+    BOOKBUDDY       = 3,
+    YOUR_PARTNER    = 4,
+    TIME_TO_STUDY   = 5,
+    // Book placed: 11-15
+    ENGLISH_PLACED  = 11,
+    HINDI_PLACED    = 12,
+    MATHS_PLACED    = 13,
+    MARATHI_PLACED  = 14,
+    SCIENCE_PLACED  = 15,
+    // Book time: 21-25
+    ENGLISH_TIME    = 21,
+    HINDI_TIME      = 22,
+    MATHS_TIME      = 23,
+    MARATHI_TIME    = 24,
+    SCIENCE_TIME    = 25,
+    // General
+    ALL_READY       = 30,
+    GOOD_JOB        = 31,
+    WELL_DONE       = 32,
+    UH_OH           = 33,
+    CHIME           = 34,
+    CLICK           = 35,
+    // New V1 audio
+    MISS_YOU        = 36,
+    GREAT_PROGRESS  = 37,
+    DOING_AMAZING   = 38,
+    DONT_FORGET     = 39,
+    WELCOME_BACK    = 40,
+    LEARN_NEW       = 41,
+    SO_PROUD        = 42,
+    TAKE_BREAK      = 43,
+    ONE_MORE        = 44,
+    ALL_COVERED     = 45,
+    SAD_CHIME       = 46,
+    HAPPY_CHIME     = 47,
+    TIME_SYNCED     = 48,
+    GOOD_MORNING    = 49,
+    GOOD_EVENING    = 50,
+  };
+  
+  // Helper arrays
   const uint8_t BOOK_PLACED[5] = {11, 12, 13, 14, 15};
   const uint8_t BOOK_TIME[5]   = {21, 22, 23, 24, 25};
-  const uint8_t ALL_READY      = 30;
-  const uint8_t GOOD_JOB       = 31;
-  const uint8_t WELL_DONE      = 32;
-  const uint8_t UH_OH          = 33;
-  const uint8_t CHIME          = 34;
-  const uint8_t CLICK          = 35;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -74,213 +123,161 @@ namespace Audio {
 // ══════════════════════════════════════════════════════════════
 
 enum class Emotion : uint8_t {
-  NEUTRAL, CALM, HAPPY, PROUD, VERY_PROUD,
-  SAD, VERY_SAD, REMINDER
+  CALM,           // Default, gentle smile
+  CONTENT,        // Slightly happier
+  HAPPY,          // Clearly happy
+  VERY_HAPPY,     // Big smile
+  PROUD,          // Maximum happiness
+  NEUTRAL,        // Flat expression
+  BORED,          // Slight downturn
+  SAD,            // Clear sadness
+  VERY_SAD,       // Deep sadness
+  PLEADING        // "Please come study" face
 };
 
-enum class SystemState : uint8_t {
+enum class SysState : uint8_t {
   BOOTING,
   INTRO,
-  BOOT_CALM,
-  ACTIVE,
-  CALM_HOLD,
-  DEGRADING,
-  OVERLAY
+  BOOT_CALM,      // First 5 min - calm face
+  ACTIVE,         // Normal operation
+  DEGRADING,      // No activity, emotion dropping
+  OVERLAY         // Showing text overlay
 };
 
-struct BookData {
-  const char*  name;
-  uint8_t      pin;
-  bool         present;
-  bool         lastStableState;
-  uint32_t     lastDebounceTime;
-  uint32_t     placedEpoch;
-  uint32_t     cumulativeSeconds;
-  bool         tracking;
-  uint32_t     sessionSeconds;  // Current session only
+struct Book {
+  const char* name;
+  uint8_t     pin;
+  // State
+  bool     isOnRack;         // true = on rack, false = removed (being studied)
+  bool     lastReading;      // for debounce
+  uint32_t debounceMs;       // debounce timestamp
+  bool     stableState;      // debounced state
+  // Time tracking
+  uint32_t removedEpoch;     // when book was removed from rack
+  uint32_t totalStudySeconds; // cumulative study time
+  uint32_t lastSessionSecs;  // last session duration
+  bool     isBeingStudied;   // currently removed for study
 };
 
 struct Settings {
-  uint32_t bootCalmMs;
-  uint32_t calmHoldMs;
-  uint32_t degradeIntervalMs;
-  uint8_t  degradeStages;
   uint8_t  volume;
-  uint32_t longPressMs;
-  bool     soundEnabled;
-  bool     animationEnabled;
+  bool     soundOn;
+  bool     animOn;
+  uint32_t bootCalmMs;       // How long to stay calm after boot
+  uint32_t degradeStepMs;    // Time between degrade stages
+  uint8_t  degradeStages;    // Number of degrade stages
 };
 
-struct FaceParams {
-  int  eyeOpen;
-  int  pupilOffset;
-  int  mouthCurve;
-  bool eyesClosed;
+struct FaceState {
+  int  eyeOpenness;   // 0=closed, 28=normal, 34=wide
+  int  pupilY;        // Vertical pupil offset
+  int  smileAmount;   // -100 to +100 (negative=frown, positive=smile)
+  bool eyesClosed;    // For happy squint
+  int  mouthOpen;     // 0=closed, 1-3=open levels
 };
 
 // ══════════════════════════════════════════════════════════════
-//  GLOBAL OBJECTS
+//  GLOBALS
 // ══════════════════════════════════════════════════════════════
 
-TFT_eSPI            tft = TFT_eSPI();
+TFT_eSPI             tft = TFT_eSPI();
 RTC_DS3231           rtc;
 HardwareSerial       dfSerial(1);
-DFRobotDFPlayerMini  dfPlayer;
-AsyncWebServer       server(80);
+DFRobotDFPlayerMini  df;
+AsyncWebServer       webServer(80);
 AsyncWebSocket       ws("/ws");
 Preferences          prefs;
 
-// ══════════════════════════════════════════════════════════════
-//  DISPLAY CONSTANTS
-// ══════════════════════════════════════════════════════════════
+// ── Display ──
+const int SCR_W = 480, SCR_H = 320;
+const int CX = 240, CY = 160;
 
-#define CLR_BG       0x1E9F  // Blue background
-#define CLR_BLACK    0x0000
-#define CLR_WHITE    0xFFFF
-#define CLR_PINK     tft.color565(255, 182, 193)
-#define CLR_RED      tft.color565(255, 100, 100)
-#define CLR_GRAY     tft.color565(200, 200, 200)
-#define CLR_GREEN    0x07E0
+// Colors
+#define C_BG      0x1E9F   // Blue background
+#define C_BLACK   0x0000
+#define C_WHITE   0xFFFF
+#define C_DGRAY   tft.color565(60, 60, 80)
+#define C_LGRAY   tft.color565(200, 200, 210)
+#define C_PINK    tft.color565(255, 180, 190)
+#define C_RED     tft.color565(255, 100, 100)
+#define C_GREEN   tft.color565(80, 220, 120)
+#define C_AMBER   tft.color565(255, 180, 50)
+#define C_DBLUE   tft.color565(30, 60, 120)
 
-const int SCREEN_W     = 480;
-const int SCREEN_H     = 320;
-const int CENTER_X     = 240;
-const int CENTER_Y     = 160;
-
-// Face geometry
-const int EYE_SPACING    = 70;
-const int EYE_Y_OFFSET   = -30;
-const int EYE_RADIUS     = 34;
-const int PUPIL_RADIUS   = 14;
-const int CHEEK_RADIUS   = 20;
-const int CHEEK_X_OFFSET = 110;
-const int CHEEK_Y_OFFSET = 25;
-const int MOUTH_Y        = 60;
-const int MOUTH_WIDTH    = 55;
-
-// ══════════════════════════════════════════════════════════════
-//  STATE VARIABLES
-// ══════════════════════════════════════════════════════════════
-
-BookData books[5] = {
-  {"English", BTN_ENGLISH, false, false, 0, 0, 0, false, 0},
-  {"Hindi",   BTN_HINDI,   false, false, 0, 0, 0, false, 0},
-  {"Maths",   BTN_MATHS,   false, false, 0, 0, 0, false, 0},
-  {"Marathi", BTN_MARATHI, false, false, 0, 0, 0, false, 0},
-  {"Science", BTN_SCIENCE, false, false, 0, 0, 0, false, 0}
+// ── Books ──
+Book books[5] = {
+  {"English", PIN_ENGLISH, true,true,0,true, 0,0,0,false},
+  {"Hindi",   PIN_HINDI,   true,true,0,true, 0,0,0,false},
+  {"Maths",   PIN_MATHS,   true,true,0,true, 0,0,0,false},
+  {"Marathi", PIN_MARATHI, true,true,0,true, 0,0,0,false},
+  {"Science", PIN_SCIENCE, true,true,0,true, 0,0,0,false}
 };
 
-Settings settings = {
-  .bootCalmMs       = 300000,   // 5 min
-  .calmHoldMs       = 300000,   // 5 min
-  .degradeIntervalMs = 300000,  // 5 min per stage
-  .degradeStages    = 5,
-  .volume           = 22,
-  .longPressMs      = 2000,
-  .soundEnabled     = true,
-  .animationEnabled = true
+// ── Settings ──
+Settings cfg = {
+  .volume        = 22,
+  .soundOn       = true,
+  .animOn        = true,
+  .bootCalmMs    = 300000,    // 5 min
+  .degradeStepMs = 300000,    // 5 min per stage
+  .degradeStages = 5
 };
 
-// System state
-SystemState  sysState          = SystemState::BOOTING;
-Emotion      currentEmotion    = Emotion::CALM;
-Emotion      prevEmotion       = Emotion::CALM;
-uint8_t      bookCount         = 0;
-uint8_t      prevBookCount     = 0;
-bool         allBooksAnnounced = false;
+// ── State ──
+SysState   sysState       = SysState::BOOTING;
+Emotion    emotion        = Emotion::CALM;
+Emotion    prevEmotion    = Emotion::CALM;
+uint32_t   stateStartMs   = 0;
+uint32_t   lastActivityMs = 0;
+uint8_t    degradeLevel   = 0;
+bool       reminderDone   = false;
 
-// Timing
-uint32_t stateEnteredAt    = 0;
-uint32_t lastInteraction   = 0;
-uint8_t  degradeStage      = 0;
-bool     reminderPlayed    = false;
+// Book counting
+uint8_t booksBeingStudied = 0;  // Books REMOVED from rack
+uint8_t prevStudyCount    = 0;
+bool    allRemovedOnce    = false;
 
-// Touch
-bool     touchActive       = false;
-uint32_t touchStartMs      = 0;
+// ── Touch ──
+bool     touchDown     = false;
+uint32_t touchDownMs   = 0;
+const uint32_t LONG_PRESS_MS = 2000;
 
-// Face animation
-FaceParams currentFace = {28, 0, 5, false};
-FaceParams targetFace  = {28, 0, 5, false};
-uint32_t   lastFrameMs = 0;
-uint32_t   lastBlinkMs = 0;
-bool       overlayShowing = false;
+// ── Face Animation ──
+FaceState face    = {28, 0, 30, false, 0};  // Current
+FaceState faceTarget = {28, 0, 30, false, 0};  // Target
+uint32_t  lastAnimMs = 0;
+uint32_t  lastBlinkMs = 0;
+bool      showingOverlay = false;
 
-// Hardware status
-bool hw_dfplayer = false;
-bool hw_rtc      = false;
-bool hw_wifi     = false;
+// ── Face Geometry (for 480x320) ──
+const int F_EYE_SPACE   = 70;
+const int F_EYE_Y       = -30;
+const int F_EYE_R       = 34;
+const int F_PUPIL_R     = 14;
+const int F_CHEEK_R     = 20;
+const int F_CHEEK_X     = 110;
+const int F_CHEEK_Y     = 25;
+const int F_MOUTH_Y     = 60;
+const int F_MOUTH_W     = 55;
 
-// WebSocket
-uint32_t lastWsBroadcast = 0;
-uint32_t wsClientCount   = 0;
+// ── Hardware Status ──
+bool hw_rtc     = false;
+bool hw_df      = false;
+bool hw_wifi    = false;
+bool hw_ntp     = false;
 
-// Session tracking
-uint32_t sessionStartEpoch = 0;
-uint32_t todayStudySeconds = 0;
+// ── WebSocket ──
+uint32_t lastWsMs = 0;
 
-// History buffer (last 24 entries)
-struct HistoryEntry {
+// ── History ──
+struct HistEvent {
   uint32_t epoch;
-  char     event[32];
-  char     detail[32];
+  char event[20];
+  char detail[32];
 };
-#define HISTORY_SIZE 50
-HistoryEntry history[HISTORY_SIZE];
-int historyHead = 0;
-int historyCount = 0;
-
-// ══════════════════════════════════════════════════════════════
-//  FORWARD DECLARATIONS
-// ══════════════════════════════════════════════════════════════
-
-void initHardware();
-void initDisplay();
-void initDFPlayer();
-void initRTC();
-void initWiFi();
-void initWebServer();
-void initWebSocket();
-void loadSettings();
-void saveSettings();
-
-void changeState(SystemState newState);
-void updateBooks();
-void updateEmotion();
-void updateTouch();
-void updateFaceAnimation();
-void updateWebSocket();
-
-void drawFaceFull();
-void drawEyes();
-void drawMouth();
-void drawCheeks();
-void clearEyes();
-void clearMouth();
-void drawSingleEye(int x, int y, bool closed);
-
-void showText(const char* l1, const char* l2, uint8_t s1, uint8_t s2);
-void showIntroSequence();
-void showBookEvent(uint8_t idx, bool placed);
-void showAllBooksEvent();
-void showQuickStatus();
-void showDetailedStats();
-
-void playAudio(uint8_t track);
-void buzz(uint16_t onMs, uint16_t offMs = 0, uint8_t repeats = 1);
-void addHistory(const char* event, const char* detail);
-
-uint32_t getEpoch();
-uint32_t getBookSeconds(uint8_t i);
-String   formatSeconds(uint32_t s);
-String   emotionToString(Emotion e);
-FaceParams emotionToFace(Emotion e);
-String   buildStatusJson();
-
-// Embedded dashboard
-void serveMainPage(AsyncWebServerRequest* req);
-void serveCSS(AsyncWebServerRequest* req);
-void serveJS(AsyncWebServerRequest* req);
+#define HIST_MAX 50
+HistEvent hist[HIST_MAX];
+int histHead = 0, histCount = 0;
 
 // ══════════════════════════════════════════════════════════════
 //  SETUP
@@ -288,44 +285,50 @@ void serveJS(AsyncWebServerRequest* req);
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
-
-  Serial.println();
-  Serial.println("╔══════════════════════════════════════╗");
-  Serial.println("║     BookBuddy V1 - Starting Up       ║");
-  Serial.println("╚══════════════════════════════════════╝");
-
+  delay(300);
+  
+  Serial.println("\n╔══════════════════════════════════════╗");
+  Serial.println("║      BookBuddy V1.0 Starting         ║");
+  Serial.println("╚══════════════════════════════════════╝\n");
+  
   loadSettings();
-  initHardware();
-  initDisplay();
-  initDFPlayer();
-  initRTC();
-  initWiFi();
-
+  setupPins();
+  setupDisplay();
+  setupDFPlayer();
+  setupRTC();
+  setupWiFi();
+  
   if (hw_wifi) {
-    initWebSocket();
-    initWebServer();
+    setupNTP();
+    setupWebSocket();
+    setupWebServer();
   }
-
-  sessionStartEpoch = getEpoch();
-  addHistory("BOOT", FIRMWARE_VER);
-
-  // Intro sequence
-  changeState(SystemState::INTRO);
-  showIntroSequence();
-
+  
+  addHist("BOOT", FW_VERSION);
+  
+  // Play time-appropriate greeting
+  if (hw_df && hw_rtc) {
+    DateTime now = rtc.now();
+    if (now.hour() < 12) playTrack(Audio::GOOD_MORNING);
+    else playTrack(Audio::GOOD_EVENING);
+  }
+  
+  // Intro
+  sysState = SysState::INTRO;
+  showIntro();
+  
   // Enter boot calm
-  changeState(SystemState::BOOT_CALM);
-  currentEmotion = Emotion::CALM;
-  targetFace = emotionToFace(Emotion::CALM);
-  currentFace = targetFace;
-
-  tft.fillScreen(CLR_BG);
-  drawFaceFull();
-  overlayShowing = false;
-
-  Serial.println("\n✓ BookBuddy V1 Ready!");
-  Serial.printf("  Free heap: %d bytes\n", ESP.getFreeHeap());
+  changeState(SysState::BOOT_CALM);
+  emotion = Emotion::CALM;
+  faceTarget = emotionToFace(Emotion::CALM);
+  face = faceTarget;
+  
+  tft.fillScreen(C_BG);
+  drawFullFace();
+  showingOverlay = false;
+  lastActivityMs = millis();
+  
+  Serial.printf("\n✓ Ready! Free heap: %d\n", ESP.getFreeHeap());
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -334,399 +337,527 @@ void setup() {
 
 void loop() {
   if (hw_wifi) ws.cleanupClients();
-
-  updateBooks();
-  updateTouch();
-  updateEmotion();
-
-  // Emotion change handler
-  if (currentEmotion != prevEmotion) {
-    Serial.printf("Emotion: %s → %s\n",
-                  emotionToString(prevEmotion).c_str(),
-                  emotionToString(currentEmotion).c_str());
-    targetFace = emotionToFace(currentEmotion);
-    onEmotionChanged();
-    prevEmotion = currentEmotion;
+  
+  readBooks();
+  readTouch();
+  calcEmotion();
+  
+  if (emotion != prevEmotion) {
+    Serial.printf("😀 Emotion: %s → %s\n", 
+                  emoStr(prevEmotion).c_str(), emoStr(emotion).c_str());
+    faceTarget = emotionToFace(emotion);
+    emotionAudio();
+    prevEmotion = emotion;
   }
-
-  if (!overlayShowing && settings.animationEnabled) {
-    updateFaceAnimation();
-    handleBlink();
+  
+  if (!showingOverlay && cfg.animOn) {
+    animateFace();
+    blinkCheck();
   }
-
-  updateWebSocket();
-
+  
+  broadcastWs();
   delay(25);
 }
 
 // ══════════════════════════════════════════════════════════════
-//  INITIALIZATION
+//  INITIALIZATION FUNCTIONS
 // ══════════════════════════════════════════════════════════════
 
-void initHardware() {
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
-  buzz(150);
-
+void setupPins() {
+  pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
+  buzzPattern(1, 150, 0);
+  
   for (int i = 0; i < 5; i++) {
     pinMode(books[i].pin, INPUT_PULLUP);
+    // Read initial state
+    books[i].isOnRack = digitalRead(books[i].pin);  // HIGH = on rack (pullup)
+    books[i].lastReading = books[i].isOnRack;
+    books[i].stableState = books[i].isOnRack;
   }
-  pinMode(TOUCH_SENSOR, INPUT);
-
-  Serial.println("✓ GPIO initialized");
+  
+  pinMode(PIN_TOUCH, INPUT);
+  Serial.println("✓ GPIO init");
 }
 
-void initDisplay() {
+void setupDisplay() {
   tft.init();
-  tft.setRotation(1);  // Landscape 480x320
-  tft.fillScreen(CLR_BG);
+  tft.setRotation(1);
+  tft.fillScreen(C_BG);
+  tft.setTextWrap(false);
   Serial.printf("✓ Display: %dx%d\n", tft.width(), tft.height());
 }
 
-void initDFPlayer() {
-  dfSerial.begin(9600, SERIAL_8N1, DFPLAYER_RX, DFPLAYER_TX);
+void setupDFPlayer() {
+  dfSerial.begin(9600, SERIAL_8N1, PIN_DF_RX, PIN_DF_TX);
   delay(1500);
-
-  if (dfPlayer.begin(dfSerial)) {
-    hw_dfplayer = true;
-    dfPlayer.volume(settings.volume);
-    Serial.println("✓ DFPlayer ready");
+  
+  if (df.begin(dfSerial)) {
+    hw_df = true;
+    df.volume(cfg.volume);
+    Serial.println("✓ DFPlayer");
   } else {
-    Serial.println("✗ DFPlayer not found");
+    Serial.println("✗ DFPlayer");
   }
 }
 
-void initRTC() {
+void setupRTC() {
   Wire.begin(21, 22);
   if (rtc.begin()) {
     hw_rtc = true;
     if (rtc.lostPower()) {
       rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-      Serial.println("  RTC was reset to compile time");
     }
     DateTime now = rtc.now();
     Serial.printf("✓ RTC: %02d:%02d:%02d\n", now.hour(), now.minute(), now.second());
   } else {
-    Serial.println("✗ RTC not found");
+    Serial.println("✗ RTC");
   }
 }
 
-void initWiFi() {
-  showText("CONNECTING", "WiFi...", 5, 4);
-
+void setupWiFi() {
+  showScreen("CONNECTING", "WiFi...", 5, 4);
+  
   WiFi.mode(WIFI_STA);
+  WiFi.setHostname(MDNS_NAME);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  uint8_t tries = 0;
+  
+  int tries = 0;
   while (WiFi.status() != WL_CONNECTED && tries < 30) {
     delay(500);
-    Serial.print(".");
     tries++;
   }
-  Serial.println();
-
+  
   if (WiFi.status() == WL_CONNECTED) {
     hw_wifi = true;
-    buzz(80, 80, 2);
-
-    if (MDNS.begin(MDNS_NAME)) {
-      MDNS.addService("http", "tcp", 80);
-      Serial.printf("✓ mDNS: %s.local\n", MDNS_NAME);
-    }
-
+    buzzPattern(2, 80, 80);
+    
+    MDNS.begin(MDNS_NAME);
+    MDNS.addService("http", "tcp", 80);
+    
     Serial.printf("✓ WiFi: %s\n", WiFi.localIP().toString().c_str());
-
-    char ipStr[20];
-    sprintf(ipStr, "%s", WiFi.localIP().toString().c_str());
-    showText("WiFi OK", ipStr, 5, 3);
+    Serial.printf("  mDNS: %s.local\n", MDNS_NAME);
+    
+    char ipBuf[20];
+    sprintf(ipBuf, "%s", WiFi.localIP().toString().c_str());
+    showScreen("WIFI OK", ipBuf, 5, 3);
     delay(2000);
   } else {
-    Serial.println("✗ WiFi failed");
-    showText("WiFi", "OFFLINE", 5, 5);
+    Serial.println("✗ WiFi");
+    showScreen("WIFI", "OFFLINE", 5, 5);
     delay(1500);
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-//  SETTINGS PERSISTENCE
+//  NTP TIME SYNC → RTC
+// ══════════════════════════════════════════════════════════════
+
+void setupNTP() {
+  configTime(GMT_OFFSET, DST_OFFSET, NTP_SERVER1, NTP_SERVER2);
+  Serial.println("✓ NTP configured");
+}
+
+bool syncNTPtoRTC() {
+  if (!hw_rtc) {
+    Serial.println("No RTC for sync");
+    return false;
+  }
+  
+  // Get NTP time
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 5000)) {
+    Serial.println("NTP fetch failed");
+    return false;
+  }
+  
+  // Save to RTC (battery backed!)
+  rtc.adjust(DateTime(
+    timeinfo.tm_year + 1900,
+    timeinfo.tm_mon + 1,
+    timeinfo.tm_mday,
+    timeinfo.tm_hour,
+    timeinfo.tm_min,
+    timeinfo.tm_sec
+  ));
+  
+  hw_ntp = true;
+  
+  DateTime now = rtc.now();
+  Serial.printf("✓ RTC synced: %04d-%02d-%02d %02d:%02d:%02d\n",
+                now.year(), now.month(), now.day(),
+                now.hour(), now.minute(), now.second());
+  
+  addHist("NTP_SYNC", "Success");
+  return true;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SETTINGS (NVS)
 // ══════════════════════════════════════════════════════════════
 
 void loadSettings() {
-  prefs.begin("bbv1", true);
-  settings.volume       = prefs.getUChar("vol", 22);
-  settings.soundEnabled = prefs.getBool("snd", true);
-  settings.bootCalmMs   = prefs.getULong("bcalm", 300000);
-  settings.calmHoldMs   = prefs.getULong("chold", 300000);
-  settings.degradeIntervalMs = prefs.getULong("dgint", 300000);
+  prefs.begin("bb", true);
+  cfg.volume       = prefs.getUChar("vol", 22);
+  cfg.soundOn      = prefs.getBool("snd", true);
+  cfg.animOn       = prefs.getBool("anim", true);
+  cfg.bootCalmMs   = prefs.getULong("bcalm", 300000);
+  cfg.degradeStepMs = prefs.getULong("dstep", 300000);
+  cfg.degradeStages = prefs.getUChar("dstages", 5);
   prefs.end();
   Serial.println("✓ Settings loaded");
 }
 
 void saveSettings() {
-  prefs.begin("bbv1", false);
-  prefs.putUChar("vol", settings.volume);
-  prefs.putBool("snd", settings.soundEnabled);
-  prefs.putULong("bcalm", settings.bootCalmMs);
-  prefs.putULong("chold", settings.calmHoldMs);
-  prefs.putULong("dgint", settings.degradeIntervalMs);
+  prefs.begin("bb", false);
+  prefs.putUChar("vol", cfg.volume);
+  prefs.putBool("snd", cfg.soundOn);
+  prefs.putBool("anim", cfg.animOn);
+  prefs.putULong("bcalm", cfg.bootCalmMs);
+  prefs.putULong("dstep", cfg.degradeStepMs);
+  prefs.putUChar("dstages", cfg.degradeStages);
   prefs.end();
-  Serial.println("Settings saved");
+  Serial.println("✓ Settings saved");
 }
 
 // ══════════════════════════════════════════════════════════════
 //  STATE MACHINE
 // ══════════════════════════════════════════════════════════════
 
-void changeState(SystemState newState) {
-  Serial.printf("State: %d → %d\n", (int)sysState, (int)newState);
-  sysState = newState;
-  stateEnteredAt = millis();
+void changeState(SysState s) {
+  Serial.printf("State: %d → %d\n", (int)sysState, (int)s);
+  sysState = s;
+  stateStartMs = millis();
+  degradeLevel = 0;
+  reminderDone = false;
 }
 
 // ══════════════════════════════════════════════════════════════
-//  BOOK STATE MANAGEMENT
+//  BOOK READING (Non-blocking debounce)
 // ══════════════════════════════════════════════════════════════
 
-void updateBooks() {
-  const uint32_t DEBOUNCE_MS = 80;
+void readBooks() {
+  const uint32_t DEBOUNCE = 80;
   uint32_t now = millis();
-  uint8_t count = 0;
-
+  uint8_t studying = 0;
+  
   for (int i = 0; i < 5; i++) {
-    bool raw = !digitalRead(books[i].pin);
-
-    // Debounce
-    if (raw != books[i].lastStableState) {
-      if (now - books[i].lastDebounceTime < DEBOUNCE_MS) {
-        // Still within debounce window, use last stable
-        if (books[i].present) count++;
-        continue;
-      }
-      books[i].lastDebounceTime = now;
+    bool raw = digitalRead(books[i].pin);  // HIGH = on rack (pullup)
+    
+    if (raw != books[i].lastReading) {
+      books[i].debounceMs = now;
+      books[i].lastReading = raw;
     }
-
-    bool stableState = raw;
-
-    // Detect transitions
-    if (stableState != books[i].present) {
-      books[i].present = stableState;
-      books[i].lastStableState = stableState;
-      lastInteraction = now;
-
-      if (stableState) {
-        onBookPlaced(i);
-      } else {
-        onBookRemoved(i);
+    
+    if ((now - books[i].debounceMs) > DEBOUNCE) {
+      if (raw != books[i].stableState) {
+        books[i].stableState = raw;
+        bool wasOnRack = books[i].isOnRack;
+        books[i].isOnRack = raw;
+        
+        if (wasOnRack && !raw) {
+          // Book REMOVED from rack → user is studying!
+          onBookRemoved(i);
+        } else if (!wasOnRack && raw) {
+          // Book PUT BACK on rack → done studying
+          onBookReturned(i);
+        }
       }
     }
-
-    if (books[i].present) count++;
+    
+    if (!books[i].isOnRack) studying++;
   }
-
-  prevBookCount = bookCount;
-  bookCount = count;
-
-  // All 5 books placed event
-  if (bookCount == 5 && prevBookCount < 5 && !allBooksAnnounced) {
-    onAllBooksPlaced();
+  
+  prevStudyCount = booksBeingStudied;
+  booksBeingStudied = studying;
+  
+  // All 5 removed (all being studied!)
+  if (booksBeingStudied == 5 && prevStudyCount < 5 && !allRemovedOnce) {
+    onAllBooksStudied();
   }
-  if (bookCount < 5) allBooksAnnounced = false;
+  if (booksBeingStudied < 5) allRemovedOnce = false;
 }
 
-void onBookPlaced(uint8_t idx) {
-  Serial.printf("📗 %s PLACED\n", books[idx].name);
-  addHistory("PLACED", books[idx].name);
-
-  books[idx].placedEpoch = getEpoch();
-  books[idx].tracking = true;
-  books[idx].sessionSeconds = 0;
-
-  // Exit degrade/calm on interaction
-  if (sysState == SystemState::BOOT_CALM ||
-      sysState == SystemState::CALM_HOLD ||
-      sysState == SystemState::DEGRADING) {
-    changeState(SystemState::ACTIVE);
+void onBookRemoved(uint8_t i) {
+  // Book removed = USER IS STUDYING THIS SUBJECT
+  Serial.printf("📖 %s REMOVED (studying!)\n", books[i].name);
+  addHist("STUDYING", books[i].name);
+  
+  books[i].removedEpoch = getEpoch();
+  books[i].isBeingStudied = true;
+  lastActivityMs = millis();
+  
+  // Exit degrade on activity
+  if (sysState == SysState::DEGRADING || sysState == SysState::BOOT_CALM) {
+    changeState(SysState::ACTIVE);
   }
-
-  // Display announcement
-  overlayShowing = true;
-  showBookEvent(idx, true);
-  playAudio(Audio::CHIME);
-  delay(600);
-  playAudio(Audio::BOOK_PLACED[idx]);
-  delay(1800);
-
-  // Restore face
-  tft.fillScreen(CLR_BG);
-  drawFaceFull();
-  overlayShowing = false;
+  
+  // Display
+  showingOverlay = true;
+  showBookEvent(i, true);  // true = studying
+  playTrack(Audio::CHIME);
+  delay(500);
+  playTrack(Audio::BOOK_TIME[i]);  // "English study time" etc
+  delay(2000);
+  
+  tft.fillScreen(C_BG);
+  drawFullFace();
+  showingOverlay = false;
 }
 
-void onBookRemoved(uint8_t idx) {
-  Serial.printf("📕 %s REMOVED\n", books[idx].name);
-
-  // Accumulate time
-  if (books[idx].tracking && books[idx].placedEpoch > 0) {
-    uint32_t elapsed = getEpoch() - books[idx].placedEpoch;
-    books[idx].cumulativeSeconds += elapsed;
-    books[idx].sessionSeconds = elapsed;
-    Serial.printf("   Session: %ds, Total: %ds\n", elapsed, books[idx].cumulativeSeconds);
+void onBookReturned(uint8_t i) {
+  // Book put back on rack → session ended
+  Serial.printf("📚 %s RETURNED (done)\n", books[i].name);
+  
+  // Calculate session time
+  uint32_t sessionSecs = 0;
+  if (books[i].isBeingStudied && books[i].removedEpoch > 0) {
+    uint32_t now = getEpoch();
+    if (now > books[i].removedEpoch) {
+      sessionSecs = now - books[i].removedEpoch;
+      books[i].totalStudySeconds += sessionSecs;
+    }
   }
-  books[idx].tracking = false;
-  books[idx].placedEpoch = 0;
-
+  books[i].lastSessionSecs = sessionSecs;
+  books[i].isBeingStudied = false;
+  books[i].removedEpoch = 0;
+  lastActivityMs = millis();
+  
   char detail[32];
-  snprintf(detail, sizeof(detail), "%s %ds", books[idx].name, books[idx].sessionSeconds);
-  addHistory("REMOVED", detail);
-
-  if (sysState == SystemState::CALM_HOLD ||
-      sysState == SystemState::DEGRADING) {
-    changeState(SystemState::ACTIVE);
-  }
-
-  overlayShowing = true;
-  showBookEvent(idx, false);
-  playAudio(Audio::BOOK_TIME[idx]);
+  snprintf(detail, 32, "%s %s", books[i].name, fmtSecs(sessionSecs).c_str());
+  addHist("DONE", detail);
+  
+  // Display
+  showingOverlay = true;
+  showBookEvent(i, false);  // false = returned
+  playTrack(Audio::BOOK_PLACED[i]);
   delay(2000);
-
-  tft.fillScreen(CLR_BG);
-  drawFaceFull();
-  overlayShowing = false;
+  
+  tft.fillScreen(C_BG);
+  drawFullFace();
+  showingOverlay = false;
 }
 
-void onAllBooksPlaced() {
-  Serial.println("⭐ ALL 5 BOOKS PLACED!");
-  allBooksAnnounced = true;
-  addHistory("ALL_PLACED", "5/5");
-
-  overlayShowing = true;
-  showAllBooksEvent();
-  playAudio(Audio::ALL_READY);
+void onAllBooksStudied() {
+  Serial.println("⭐ ALL 5 BOOKS BEING STUDIED!");
+  allRemovedOnce = true;
+  addHist("ALL_STUDY", "5/5 active");
+  
+  showingOverlay = true;
+  showAllStudying();
+  playTrack(Audio::ALL_COVERED);
   delay(2000);
-  playAudio(Audio::WELL_DONE);
+  playTrack(Audio::SO_PROUD);
   delay(2000);
-
-  // Start calm hold → will degrade after timeout
-  changeState(SystemState::CALM_HOLD);
-  reminderPlayed = false;
-  degradeStage = 0;
-
-  currentEmotion = Emotion::CALM;
-  targetFace = emotionToFace(Emotion::CALM);
-  currentFace = targetFace;
-
-  tft.fillScreen(CLR_BG);
-  drawFaceFull();
-  overlayShowing = false;
-}
-
-void onEmotionChanged() {
-  if (!settings.soundEnabled) return;
-
-  switch (currentEmotion) {
-    case Emotion::HAPPY:  playAudio(Audio::GOOD_JOB); break;
-    case Emotion::PROUD:  playAudio(Audio::WELL_DONE); break;
-    case Emotion::SAD:    playAudio(Audio::UH_OH); break;
-    default: break;
-  }
+  
+  tft.fillScreen(C_BG);
+  drawFullFace();
+  showingOverlay = false;
 }
 
 // ══════════════════════════════════════════════════════════════
-//  EMOTION LOGIC
+//  EMOTION CALCULATION - FIXED LOGIC
 // ══════════════════════════════════════════════════════════════
+/*
+ * LOGIC:
+ * 
+ * Happiness is based on how many books are REMOVED (being studied).
+ * 0 books studying → Neutral/Calm
+ * 1 book  → Content
+ * 2 books → Happy  
+ * 3 books → Very Happy
+ * 4 books → Very Happy+
+ * 5 books → Proud (maximum)
+ *
+ * DEGRADATION (no activity):
+ * 0-5 min   → Calm (boot calm period)
+ * 5-10 min  → Neutral (slightly bored)
+ * 10-15 min → Bored
+ * 15-20 min → Sad
+ * 20-25 min → Very Sad
+ * 25+ min   → Pleading + audio reminder
+ */
 
-void updateEmotion() {
+void calcEmotion() {
   uint32_t now = millis();
-  uint32_t elapsed = now - stateEnteredAt;
-
+  uint32_t stateElapsed = now - stateStartMs;
+  uint32_t idleTime = now - lastActivityMs;
+  
   switch (sysState) {
-    case SystemState::BOOT_CALM:
-      currentEmotion = Emotion::CALM;
-      if (elapsed >= settings.bootCalmMs) {
+    case SysState::BOOT_CALM:
+      emotion = Emotion::CALM;
+      if (stateElapsed >= cfg.bootCalmMs) {
         Serial.println("Boot calm ended");
-        changeState(SystemState::ACTIVE);
+        if (booksBeingStudied > 0) {
+          changeState(SysState::ACTIVE);
+        } else {
+          changeState(SysState::DEGRADING);
+        }
       }
       break;
-
-    case SystemState::CALM_HOLD:
-      currentEmotion = Emotion::CALM;
-      if (elapsed >= settings.calmHoldMs) {
-        Serial.println("Calm hold → Degrading");
-        changeState(SystemState::DEGRADING);
+      
+    case SysState::ACTIVE:
+      // Emotion based on study count (books removed)
+      emotion = studyCountToEmotion(booksBeingStudied);
+      
+      // If no activity for degradeStepMs, start degrading
+      if (booksBeingStudied == 0 && idleTime >= cfg.degradeStepMs) {
+        changeState(SysState::DEGRADING);
       }
       break;
-
-    case SystemState::DEGRADING: {
-      uint8_t stage = elapsed / settings.degradeIntervalMs;
-      if (stage > settings.degradeStages) stage = settings.degradeStages;
-      degradeStage = stage;
-
+      
+    case SysState::DEGRADING: {
+      // Progressive degradation based on idle time
+      uint32_t totalIdle = now - lastActivityMs;
+      uint8_t stage = totalIdle / cfg.degradeStepMs;
+      if (stage > cfg.degradeStages) stage = cfg.degradeStages;
+      degradeLevel = stage;
+      
+      // If user starts studying during degrade, go back to active
+      if (booksBeingStudied > 0) {
+        changeState(SysState::ACTIVE);
+        break;
+      }
+      
       switch (stage) {
-        case 0: currentEmotion = Emotion::CALM;     break;
-        case 1: currentEmotion = Emotion::NEUTRAL;  break;
-        case 2: currentEmotion = Emotion::NEUTRAL;  break;
-        case 3: currentEmotion = Emotion::SAD;       break;
-        case 4: currentEmotion = Emotion::VERY_SAD;  break;
+        case 0: emotion = Emotion::CALM;     break;  // 0-5 min
+        case 1: emotion = Emotion::NEUTRAL;  break;  // 5-10 min
+        case 2: emotion = Emotion::BORED;    break;  // 10-15 min
+        case 3: emotion = Emotion::SAD;       break;  // 15-20 min
+        case 4: emotion = Emotion::VERY_SAD;  break;  // 20-25 min
         default:
-          currentEmotion = Emotion::REMINDER;
-          if (!reminderPlayed) {
-            reminderPlayed = true;
-            addHistory("REMINDER", "Time to study!");
-            playAudio(Audio::TIME_TO_STUDY);
-            buzz(200, 100, 3);
+          emotion = Emotion::PLEADING;
+          if (!reminderDone) {
+            reminderDone = true;
+            addHist("REMINDER", "Come study!");
+            playTrack(Audio::MISS_YOU);
+            buzzPattern(3, 200, 100);
           }
           break;
       }
       break;
     }
-
-    case SystemState::ACTIVE:
-      // Emotion based on book count
-      switch (bookCount) {
-        case 0:  currentEmotion = Emotion::NEUTRAL; break;
-        case 1:
-        case 2:  currentEmotion = Emotion::CALM;    break;
-        case 3:
-        case 4:  currentEmotion = Emotion::HAPPY;   break;
-        case 5:  currentEmotion = Emotion::PROUD;   break;
-      }
-      break;
-
+    
     default:
       break;
   }
 }
 
-// ══════════════════════════════════════════════════════════════
-//  TOUCH HANDLER
-// ══════════════════════════════════════════════════════════════
-
-void updateTouch() {
-  bool reading = digitalRead(TOUCH_SENSOR);
-
-  if (reading && !touchActive) {
-    touchActive = true;
-    touchStartMs = millis();
+Emotion studyCountToEmotion(uint8_t count) {
+  switch (count) {
+    case 0:  return Emotion::CALM;
+    case 1:  return Emotion::CONTENT;
+    case 2:  return Emotion::HAPPY;
+    case 3:  return Emotion::VERY_HAPPY;
+    case 4:  return Emotion::VERY_HAPPY;
+    case 5:  return Emotion::PROUD;
+    default: return Emotion::CALM;
   }
+}
 
-  if (!reading && touchActive) {
-    uint32_t duration = millis() - touchStartMs;
-    touchActive = false;
+void emotionAudio() {
+  if (!cfg.soundOn) return;
+  
+  // Only play on upgrades (more studying) or significant degrades
+  switch (emotion) {
+    case Emotion::CONTENT:   playTrack(Audio::CLICK); break;
+    case Emotion::HAPPY:     playTrack(Audio::GOOD_JOB); break;
+    case Emotion::VERY_HAPPY: playTrack(Audio::GREAT_PROGRESS); break;
+    case Emotion::PROUD:     playTrack(Audio::DOING_AMAZING); break;
+    case Emotion::BORED:     playTrack(Audio::DONT_FORGET); break;
+    case Emotion::SAD:       playTrack(Audio::SAD_CHIME); break;
+    case Emotion::VERY_SAD:  playTrack(Audio::UH_OH); break;
+    default: break;
+  }
+}
 
-    if (duration >= settings.longPressMs) {
+// ══════════════════════════════════════════════════════════════
+//  EMOTION → FACE MAPPING (FIXED - No more evil smile!)
+// ══════════════════════════════════════════════════════════════
+/*
+ * smileAmount: -100 to +100
+ *   +100 = maximum smile
+ *   0    = straight line
+ *   -100 = maximum frown
+ * 
+ * mouthOpen: 0-3
+ *   0 = closed mouth
+ *   1 = slightly open
+ *   2 = medium open
+ *   3 = wide open (laughing)
+ *
+ * eyeOpenness: 0-34
+ *   0  = closed (squinting happy)
+ *   28 = normal
+ *   34 = wide (surprised/sad)
+ *
+ * pupilY: vertical offset
+ *   0  = center
+ *   >0 = looking down (sad)
+ */
+
+FaceState emotionToFace(Emotion e) {
+  //              eyeOpen, pupilY, smile, closed, mouthOpen
+  switch (e) {
+    case Emotion::CALM:       return {28,  0,  30, false, 0};
+    case Emotion::CONTENT:    return {26,  0,  45, false, 0};
+    case Emotion::HAPPY:      return {20, -2,  60, false, 1};
+    case Emotion::VERY_HAPPY: return { 5,  0,  75, true,  1};
+    case Emotion::PROUD:      return { 0,  0,  85, true,  2};
+    case Emotion::NEUTRAL:    return {30,  0,   5, false, 0};
+    case Emotion::BORED:      return {32,  3, -15, false, 0};
+    case Emotion::SAD:        return {33,  5, -40, false, 0};
+    case Emotion::VERY_SAD:   return {34,  8, -65, false, 0};
+    case Emotion::PLEADING:   return {34,  6, -50, false, 0};
+    default:                  return {28,  0,  30, false, 0};
+  }
+}
+
+String emoStr(Emotion e) {
+  switch (e) {
+    case Emotion::CALM:       return "Calm";
+    case Emotion::CONTENT:    return "Content";
+    case Emotion::HAPPY:      return "Happy";
+    case Emotion::VERY_HAPPY: return "Very Happy";
+    case Emotion::PROUD:      return "Proud";
+    case Emotion::NEUTRAL:    return "Neutral";
+    case Emotion::BORED:      return "Bored";
+    case Emotion::SAD:        return "Sad";
+    case Emotion::VERY_SAD:   return "Very Sad";
+    case Emotion::PLEADING:   return "Pleading";
+    default:                  return "Unknown";
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  TOUCH SENSOR
+// ══════════════════════════════════════════════════════════════
+
+void readTouch() {
+  bool reading = digitalRead(PIN_TOUCH);
+  
+  if (reading && !touchDown) {
+    touchDown = true;
+    touchDownMs = millis();
+  }
+  
+  if (!reading && touchDown) {
+    uint32_t dur = millis() - touchDownMs;
+    touchDown = false;
+    
+    if (dur >= LONG_PRESS_MS) {
       Serial.println("👆 Long press → Stats");
-      playAudio(Audio::CHIME);
-      addHistory("TOUCH", "long press");
+      playTrack(Audio::CHIME);
+      addHist("TOUCH", "long");
       showDetailedStats();
-    } else if (duration > 50) {
+    } else if (dur > 50) {
       Serial.println("👆 Short press → Status");
-      playAudio(Audio::CLICK);
-      addHistory("TOUCH", "short press");
-      lastInteraction = millis();
-
-      if (sysState == SystemState::DEGRADING || sysState == SystemState::CALM_HOLD) {
-        changeState(SystemState::ACTIVE);
-        reminderPlayed = false;
+      playTrack(Audio::CLICK);
+      addHist("TOUCH", "short");
+      lastActivityMs = millis();
+      
+      if (sysState == SysState::DEGRADING) {
+        changeState(SysState::ACTIVE);
       }
       showQuickStatus();
     }
@@ -734,376 +865,482 @@ void updateTouch() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  DISPLAY FUNCTIONS
+//  DISPLAY FUNCTIONS (Professional UI)
 // ══════════════════════════════════════════════════════════════
 
-void showText(const char* l1, const char* l2, uint8_t s1, uint8_t s2) {
-  tft.fillScreen(CLR_BG);
-  tft.setTextColor(CLR_BLACK, CLR_BG);
-
-  if (l1) {
+void showScreen(const char* line1, const char* line2, uint8_t s1, uint8_t s2) {
+  tft.fillScreen(C_BG);
+  tft.setTextColor(C_BLACK, C_BG);
+  
+  if (line1) {
     tft.setTextSize(s1);
-    int w = strlen(l1) * s1 * 6;
-    tft.setCursor((SCREEN_W - w) / 2, CENTER_Y - 50);
-    tft.print(l1);
+    int w = strlen(line1) * s1 * 6;
+    tft.setCursor((SCR_W - w) / 2, CY - 50);
+    tft.print(line1);
   }
-  if (l2 && strlen(l2) > 0) {
+  if (line2 && strlen(line2) > 0) {
     tft.setTextSize(s2);
-    int w = strlen(l2) * s2 * 6;
-    tft.setCursor((SCREEN_W - w) / 2, CENTER_Y + 30);
-    tft.print(l2);
+    int w = strlen(line2) * s2 * 6;
+    tft.setCursor((SCR_W - w) / 2, CY + 30);
+    tft.print(line2);
   }
 }
 
-void showIntroSequence() {
-  overlayShowing = true;
-
+void showIntro() {
+  showingOverlay = true;
+  
   // "HEYY!"
-  tft.fillScreen(CLR_BG);
-  tft.setTextColor(CLR_BLACK, CLR_BG);
+  tft.fillScreen(C_BG);
+  tft.setTextColor(C_BLACK, C_BG);
   tft.setTextSize(10);
   const char* hey = "HEYY!";
   int w = strlen(hey) * 60;
-  int x = (SCREEN_W - w) / 2;
-  tft.setCursor(x, CENTER_Y - 40);
+  tft.setCursor((SCR_W - w) / 2, CY - 40);
   for (int i = 0; hey[i]; i++) {
     tft.print(hey[i]);
     delay(80);
   }
-  playAudio(Audio::HEY);
+  playTrack(Audio::HEY);
   delay(1500);
-
+  
   // "I AM"
-  tft.fillScreen(CLR_BG);
+  tft.fillScreen(C_BG);
   tft.setTextSize(10);
   const char* iam = "I AM";
   w = strlen(iam) * 60;
-  tft.setCursor((SCREEN_W - w) / 2, CENTER_Y - 40);
+  tft.setCursor((SCR_W - w) / 2, CY - 40);
   for (int i = 0; iam[i]; i++) {
     tft.print(iam[i]);
     delay(80);
   }
-  playAudio(Audio::I_AM);
+  playTrack(Audio::I_AM);
   delay(1200);
-
+  
   // "BOOK BUDDY"
-  showText("BOOK", "BUDDY", 8, 8);
-  playAudio(Audio::BOOKBUDDY);
+  showScreen("BOOK", "BUDDY", 8, 8);
+  playTrack(Audio::BOOKBUDDY);
   delay(2000);
-
+  
   // "YOUR STUDY PARTNER"
-  showText("YOUR STUDY", "PARTNER", 5, 7);
-  playAudio(Audio::YOUR_PARTNER);
+  showScreen("YOUR STUDY", "PARTNER", 5, 7);
+  playTrack(Audio::YOUR_PARTNER);
   delay(2500);
-
-  overlayShowing = false;
+  
+  showingOverlay = false;
 }
 
-void showBookEvent(uint8_t idx, bool placed) {
-  tft.fillScreen(CLR_BG);
-  tft.setTextColor(CLR_BLACK, CLR_BG);
-
-  // Book name
+void showBookEvent(uint8_t idx, bool studying) {
+  tft.fillScreen(C_BG);
+  
+  // Decorative top bar
+  tft.fillRect(0, 0, SCR_W, 4, studying ? C_GREEN : C_AMBER);
+  
+  tft.setTextColor(C_BLACK, C_BG);
+  
+  // Book name - large
   String name = books[idx].name;
   name.toUpperCase();
   tft.setTextSize(6);
   int w = name.length() * 36;
-  tft.setCursor((SCREEN_W - w) / 2, CENTER_Y - 60);
+  tft.setCursor((SCR_W - w) / 2, 60);
   tft.print(name);
-
-  // Action
-  const char* action = placed ? "PLACED!" : "REMOVED";
-  tft.setTextSize(6);
-  w = strlen(action) * 36;
-  tft.setCursor((SCREEN_W - w) / 2, CENTER_Y + 20);
-  tft.print(action);
-
-  if (!placed) {
-    String timeStr = "Time: " + formatSeconds(getBookSeconds(idx));
+  
+  // Status line
+  if (studying) {
+    tft.setTextSize(4);
+    const char* msg = "STUDYING!";
+    w = strlen(msg) * 24;
+    tft.setCursor((SCR_W - w) / 2, 130);
+    tft.setTextColor(C_GREEN, C_BG);
+    tft.print(msg);
+  } else {
+    tft.setTextSize(4);
+    const char* msg = "DONE!";
+    w = strlen(msg) * 24;
+    tft.setCursor((SCR_W - w) / 2, 130);
+    tft.setTextColor(C_AMBER, C_BG);
+    tft.print(msg);
+    
+    // Show session time
+    tft.setTextColor(C_BLACK, C_BG);
+    String timeStr = "Session: " + fmtSecs(books[idx].lastSessionSecs);
     tft.setTextSize(3);
     w = timeStr.length() * 18;
-    tft.setCursor((SCREEN_W - w) / 2, CENTER_Y + 90);
+    tft.setCursor((SCR_W - w) / 2, 190);
     tft.print(timeStr);
+    
+    // Total time
+    String totalStr = "Total: " + fmtSecs(getBookSecs(idx));
+    w = totalStr.length() * 18;
+    tft.setCursor((SCR_W - w) / 2, 230);
+    tft.print(totalStr);
   }
+  
+  // Count indicator at bottom
+  tft.setTextColor(C_BLACK, C_BG);
+  tft.setTextSize(2);
+  char countBuf[30];
+  sprintf(countBuf, "Studying: %d / 5 subjects", booksBeingStudied);
+  w = strlen(countBuf) * 12;
+  tft.setCursor((SCR_W - w) / 2, 285);
+  tft.print(countBuf);
 }
 
-void showAllBooksEvent() {
-  tft.fillScreen(CLR_BG);
-  tft.setTextColor(CLR_BLACK, CLR_BG);
-
+void showAllStudying() {
+  tft.fillScreen(C_BG);
+  tft.fillRect(0, 0, SCR_W, 4, C_GREEN);
+  tft.fillRect(0, SCR_H - 4, SCR_W, 4, C_GREEN);
+  tft.setTextColor(C_BLACK, C_BG);
+  
   tft.setTextSize(5);
   const char* l1 = "ALL BOOKS";
-  tft.setCursor((SCREEN_W - strlen(l1) * 30) / 2, CENTER_Y - 80);
+  tft.setCursor((SCR_W - strlen(l1) * 30) / 2, 50);
   tft.print(l1);
-
-  tft.setTextSize(7);
-  const char* l2 = "PLACED!";
-  tft.setCursor((SCREEN_W - strlen(l2) * 42) / 2, CENTER_Y - 10);
+  
+  tft.setTextSize(6);
+  tft.setTextColor(C_GREEN, C_BG);
+  const char* l2 = "STUDYING!";
+  tft.setCursor((SCR_W - strlen(l2) * 36) / 2, 120);
   tft.print(l2);
-
+  
+  tft.setTextColor(C_BLACK, C_BG);
   tft.setTextSize(4);
-  const char* l3 = "WELL DONE!";
-  tft.setCursor((SCREEN_W - strlen(l3) * 24) / 2, CENTER_Y + 70);
+  const char* l3 = "SO PROUD!";
+  tft.setCursor((SCR_W - strlen(l3) * 24) / 2, 200);
   tft.print(l3);
 }
 
 void showQuickStatus() {
-  overlayShowing = true;
-  tft.fillScreen(CLR_BG);
-  tft.setTextColor(CLR_BLACK, CLR_BG);
-
-  tft.setTextSize(5);
-  const char* title = "GREAT JOB!";
-  tft.setCursor((SCREEN_W - strlen(title) * 30) / 2, 15);
+  showingOverlay = true;
+  tft.fillScreen(C_BG);
+  
+  // Header bar
+  tft.fillRect(0, 0, SCR_W, 50, C_DBLUE);
+  tft.setTextColor(C_WHITE, C_DBLUE);
+  tft.setTextSize(3);
+  const char* title = "BOOKBUDDY STATUS";
+  int w = strlen(title) * 18;
+  tft.setCursor((SCR_W - w) / 2, 14);
   tft.print(title);
-
-  tft.drawFastHLine(30, 65, SCREEN_W - 60, CLR_BLACK);
-
+  
+  tft.setTextColor(C_BLACK, C_BG);
+  int y = 65;
+  
+  // Time
   if (hw_rtc) {
     DateTime now = rtc.now();
-    char buf[30];
-    sprintf(buf, "Time: %02d:%02d:%02d", now.hour(), now.minute(), now.second());
-    tft.setTextSize(3);
-    tft.setCursor((SCREEN_W - strlen(buf) * 18) / 2, 80);
-    tft.print(buf);
+    char buf[20];
+    sprintf(buf, "%02d:%02d:%02d", now.hour(), now.minute(), now.second());
+    drawInfoRow(y, "TIME", buf, 3);
+    y += 48;
   }
-
+  
+  // Books studying
   char bookBuf[20];
-  sprintf(bookBuf, "Books: %d / 5", bookCount);
-  tft.setTextSize(4);
-  tft.setCursor((SCREEN_W - strlen(bookBuf) * 24) / 2, 130);
-  tft.print(bookBuf);
-
+  sprintf(bookBuf, "%d / 5", booksBeingStudied);
+  drawInfoRow(y, "STUDYING", bookBuf, 3);
+  y += 48;
+  
+  // Total time
   uint32_t total = 0;
-  for (int i = 0; i < 5; i++) total += getBookSeconds(i);
-  String totalStr = "Study: " + formatSeconds(total);
-  tft.setTextSize(4);
-  tft.setCursor((SCREEN_W - totalStr.length() * 24) / 2, 200);
-  tft.print(totalStr);
-
+  for (int i = 0; i < 5; i++) total += getBookSecs(i);
+  drawInfoRow(y, "TOTAL", fmtSecs(total).c_str(), 3);
+  y += 48;
+  
+  // Emotion
+  drawInfoRow(y, "MOOD", emoStr(emotion).c_str(), 3);
+  
+  // Footer
   if (hw_wifi) {
-    String ipStr = "IP: " + WiFi.localIP().toString();
     tft.setTextSize(2);
-    tft.setCursor((SCREEN_W - ipStr.length() * 12) / 2, 270);
+    tft.setTextColor(C_LGRAY, C_BG);
+    String ipStr = WiFi.localIP().toString();
+    w = ipStr.length() * 12;
+    tft.setCursor((SCR_W - w) / 2, 290);
     tft.print(ipStr);
   }
-
+  
   delay(3000);
-  tft.fillScreen(CLR_BG);
-  drawFaceFull();
-  overlayShowing = false;
+  tft.fillScreen(C_BG);
+  drawFullFace();
+  showingOverlay = false;
+}
+
+void drawInfoRow(int y, const char* label, const char* value, uint8_t sz) {
+  tft.setTextSize(sz);
+  tft.setTextColor(C_LGRAY, C_BG);
+  tft.setCursor(30, y);
+  tft.print(label);
+  
+  tft.setTextColor(C_BLACK, C_BG);
+  int w = strlen(value) * sz * 6;
+  tft.setCursor(SCR_W - w - 30, y);
+  tft.print(value);
+  
+  // Separator
+  tft.drawFastHLine(30, y + sz * 8 + 6, SCR_W - 60, C_DBLUE);
 }
 
 void showDetailedStats() {
-  overlayShowing = true;
-  tft.fillScreen(CLR_BG);
-  tft.setTextColor(CLR_BLACK, CLR_BG);
-
-  tft.setTextSize(4);
-  const char* title = "TODAY'S PROGRESS";
-  tft.setCursor((SCREEN_W - strlen(title) * 24) / 2, 10);
+  showingOverlay = true;
+  tft.fillScreen(C_BG);
+  
+  // Header
+  tft.fillRect(0, 0, SCR_W, 50, C_DBLUE);
+  tft.setTextColor(C_WHITE, C_DBLUE);
+  tft.setTextSize(3);
+  const char* title = "STUDY PROGRESS";
+  int w = strlen(title) * 18;
+  tft.setCursor((SCR_W - w) / 2, 14);
   tft.print(title);
-
-  tft.drawFastHLine(15, 55, SCREEN_W - 30, CLR_BLACK);
-
-  tft.setTextSize(3);
-  int yPos = 70;
-
+  
+  // Each subject
+  int y = 60;
+  int barW = SCR_W - 80;
+  
+  // Find max for scaling
+  uint32_t maxSecs = 1;
   for (int i = 0; i < 5; i++) {
-    uint32_t secs = getBookSeconds(i);
-    String timeStr = formatSeconds(secs);
-
-    if (books[i].present) {
-      tft.fillCircle(25, yPos + 10, 6, CLR_GREEN);
-    } else {
-      tft.drawCircle(25, yPos + 10, 6, CLR_BLACK);
-    }
-
-    tft.setCursor(45, yPos);
-    tft.print(books[i].name);
-    tft.print(":");
-
-    int tw = timeStr.length() * 18;
-    tft.setCursor(SCREEN_W - tw - 30, yPos);
-    tft.print(timeStr);
-
-    yPos += 42;
+    uint32_t s = getBookSecs(i);
+    if (s > maxSecs) maxSecs = s;
   }
-
+  
+  uint16_t barColors[5] = {
+    tft.color565(59, 130, 246),   // Blue
+    tft.color565(34, 197, 94),    // Green
+    tft.color565(245, 158, 11),   // Amber
+    tft.color565(168, 85, 247),   // Purple
+    tft.color565(239, 68, 68)     // Red
+  };
+  
+  for (int i = 0; i < 5; i++) {
+    uint32_t secs = getBookSecs(i);
+    
+    // Status icon + name
+    tft.setTextColor(C_BLACK, C_BG);
+    tft.setTextSize(2);
+    
+    // Active indicator
+    if (books[i].isBeingStudied) {
+      tft.fillCircle(25, y + 8, 5, C_GREEN);
+    } else {
+      tft.drawCircle(25, y + 8, 5, C_LGRAY);
+    }
+    
+    tft.setCursor(40, y);
+    tft.print(books[i].name);
+    
+    // Time value
+    String ts = fmtSecs(secs);
+    int tw = ts.length() * 12;
+    tft.setCursor(SCR_W - tw - 20, y);
+    tft.print(ts);
+    
+    // Progress bar
+    int barY = y + 22;
+    tft.fillRoundRect(40, barY, barW, 10, 5, C_DBLUE);
+    int fillW = (secs * barW) / maxSecs;
+    if (fillW > 2) {
+      tft.fillRoundRect(40, barY, fillW, 10, 5, barColors[i]);
+    }
+    
+    y += 46;
+  }
+  
+  // Total at bottom
+  uint32_t total = 0;
+  for (int i = 0; i < 5; i++) total += getBookSecs(i);
+  
+  tft.setTextColor(C_BLACK, C_BG);
   tft.setTextSize(3);
-  const char* tip = "KEEP GOING!";
-  tft.setCursor((SCREEN_W - strlen(tip) * 18) / 2, 290);
-  tft.print(tip);
-
+  String totalStr = "Total: " + fmtSecs(total);
+  w = totalStr.length() * 18;
+  tft.setCursor((SCR_W - w) / 2, 295);
+  tft.print(totalStr);
+  
   delay(5000);
-  tft.fillScreen(CLR_BG);
-  drawFaceFull();
-  overlayShowing = false;
+  tft.fillScreen(C_BG);
+  drawFullFace();
+  showingOverlay = false;
 }
 
 // ══════════════════════════════════════════════════════════════
-//  FACE RENDERING
+//  FACE RENDERING - COMPLETELY FIXED
 // ══════════════════════════════════════════════════════════════
 
-void drawFaceFull() {
+void drawFullFace() {
   drawCheeks();
   drawEyes();
   drawMouth();
 }
 
 void drawCheeks() {
-  tft.fillCircle(CENTER_X - CHEEK_X_OFFSET, CENTER_Y + CHEEK_Y_OFFSET, CHEEK_RADIUS, CLR_PINK);
-  tft.fillCircle(CENTER_X + CHEEK_X_OFFSET, CENTER_Y + CHEEK_Y_OFFSET, CHEEK_RADIUS, CLR_PINK);
+  tft.fillCircle(CX - F_CHEEK_X, CY + F_CHEEK_Y, F_CHEEK_R, C_PINK);
+  tft.fillCircle(CX + F_CHEEK_X, CY + F_CHEEK_Y, F_CHEEK_R, C_PINK);
 }
 
 void drawEyes() {
-  int ly = CENTER_Y + EYE_Y_OFFSET;
-  drawSingleEye(CENTER_X - EYE_SPACING, ly, currentFace.eyesClosed);
-  drawSingleEye(CENTER_X + EYE_SPACING, ly, currentFace.eyesClosed);
+  int ey = CY + F_EYE_Y;
+  drawOneEye(CX - F_EYE_SPACE, ey, face.eyesClosed);
+  drawOneEye(CX + F_EYE_SPACE, ey, face.eyesClosed);
 }
 
-void drawSingleEye(int x, int y, bool closed) {
+void drawOneEye(int x, int y, bool closed) {
   if (closed) {
-    int hw = 30;
-    for (int t = -3; t <= 3; t++) {
+    // Happy squint - curved line (NOT a frown)
+    int hw = 28;
+    for (int t = -2; t <= 2; t++) {
       for (int i = -hw; i <= hw; i++) {
         float n = (float)i / hw;
-        int cy = (int)(n * n * 18);
-        tft.drawPixel(x + i, y + cy + t, CLR_BLACK);
+        // Upward curve (happy squint) - arch shape
+        int cy = (int)(-abs(n) * 12 + 12);  // Makes ∩ shape
+        tft.drawPixel(x + i, y + cy + t, C_BLACK);
       }
     }
   } else {
-    tft.fillCircle(x, y, EYE_RADIUS, CLR_WHITE);
-    tft.drawCircle(x, y, EYE_RADIUS, CLR_GRAY);
-
-    int py = y + currentFace.pupilOffset;
-    tft.fillCircle(x, py, PUPIL_RADIUS, CLR_BLACK);
-    tft.fillCircle(x - 6, py - 6, 6, CLR_WHITE);
-    tft.fillCircle(x - 9, py - 9, 2, CLR_WHITE);
+    // Open eye
+    tft.fillCircle(x, y, F_EYE_R, C_WHITE);
+    tft.drawCircle(x, y, F_EYE_R, C_LGRAY);
+    
+    // Pupil with vertical offset
+    int py = y + face.pupilY;
+    tft.fillCircle(x, py, F_PUPIL_R, C_BLACK);
+    
+    // Highlight reflections
+    tft.fillCircle(x - 5, py - 5, 5, C_WHITE);
+    tft.fillCircle(x - 8, py - 8, 2, C_WHITE);
+    
+    // Eyelid effect for half-closed eyes
+    if (face.eyeOpenness < 20) {
+      int lidDrop = map(face.eyeOpenness, 0, 20, F_EYE_R, 0);
+      tft.fillRect(x - F_EYE_R - 1, y - F_EYE_R - 1, 
+                    (F_EYE_R + 1) * 2, lidDrop, C_BG);
+    }
   }
 }
 
-void clearEyes() {
-  int ey = CENTER_Y + EYE_Y_OFFSET;
-  int r = EYE_RADIUS + 5;
-  tft.fillRect(CENTER_X - EYE_SPACING - r, ey - r, r * 2, r * 2, CLR_BG);
-  tft.fillRect(CENTER_X + EYE_SPACING - r, ey - r, r * 2, r * 2, CLR_BG);
-  drawCheeks();
+void clearEyeRegion() {
+  int ey = CY + F_EYE_Y;
+  int r = F_EYE_R + 6;
+  tft.fillRect(CX - F_EYE_SPACE - r, ey - r, r * 2, r * 2, C_BG);
+  tft.fillRect(CX + F_EYE_SPACE - r, ey - r, r * 2, r * 2, C_BG);
+  drawCheeks();  // Redraw cheeks that may overlap
 }
 
-void clearMouth() {
-  tft.fillRect(CENTER_X - MOUTH_WIDTH - 30, CENTER_Y + MOUTH_Y - 30,
-               (MOUTH_WIDTH + 30) * 2, 80, CLR_BG);
+void clearMouthRegion() {
+  tft.fillRect(CX - F_MOUTH_W - 35, CY + F_MOUTH_Y - 35,
+               (F_MOUTH_W + 35) * 2, 90, C_BG);
 }
 
 void drawMouth() {
-  int cx = CENTER_X;
-  int cy = CENTER_Y + MOUTH_Y;
-  int w  = MOUTH_WIDTH;
-  int mc = currentFace.mouthCurve;
-
-  if (mc > 0) {
-    int curve = mc * -5;
-    for (int t = -3; t <= 3; t++) {
-      for (int i = -w; i <= w; i++) {
-        float n = (float)i / w;
-        int y = cy + (int)(n * n * curve) + t;
-        tft.drawPixel(cx + i, y, CLR_BLACK);
-      }
-    }
-    if (mc > 10) {
-      int oy = cy + curve + 10;
-      tft.fillCircle(cx, oy, 20, CLR_BLACK);
-      tft.fillCircle(cx, oy + 6, 14, CLR_RED);
-    }
-  } else if (mc < 0) {
-    int curve = abs(mc) * 4;
-    for (int t = -3; t <= 3; t++) {
-      for (int i = -w; i <= w; i++) {
-        float n = (float)i / w;
-        int y = cy - (int)(n * n * curve) + t;
-        tft.drawPixel(cx + i, y, CLR_BLACK);
-      }
-    }
-    if (mc < -8) {
-      tft.fillCircle(cx, cy - curve - 5, 10, CLR_BLACK);
-    }
-  } else {
+  int cx = CX;
+  int cy = CY + F_MOUTH_Y;
+  int w  = F_MOUTH_W;
+  int smile = face.smileAmount;  // -100 to +100
+  int openLevel = face.mouthOpen;
+  
+  if (smile > 0) {
+    // ═══ SMILE ═══
+    // Map smile (0-100) to curve depth (0-25 pixels)
+    int depth = map(constrain(smile, 0, 100), 0, 100, 0, 25);
+    
+    // Draw smile curve (U shape, opening downward = smile)
     for (int t = -2; t <= 2; t++) {
-      tft.drawFastHLine(cx - w, cy + t, w * 2, CLR_BLACK);
+      for (int i = -w; i <= w; i++) {
+        float n = (float)i / w;
+        // Parabola: y = depth * n^2 - makes a U shape
+        int py = cy + (int)(n * n * depth) + t;
+        tft.drawPixel(cx + i, py, C_BLACK);
+      }
+    }
+    
+    // Open mouth for higher happiness
+    if (openLevel >= 1 && depth > 10) {
+      // Fill inside the smile curve
+      int fillR = map(openLevel, 1, 3, 10, 22);
+      int mouthCenterY = cy + depth / 2 + 5;
+      tft.fillCircle(cx, mouthCenterY, fillR, C_BLACK);
+      
+      // Tongue (red inside)
+      if (openLevel >= 2) {
+        int tongueR = fillR - 4;
+        tft.fillCircle(cx, mouthCenterY + 4, tongueR, C_RED);
+      }
+    }
+    
+  } else if (smile < 0) {
+    // ═══ FROWN ═══
+    int depth = map(constrain(-smile, 0, 100), 0, 100, 0, 20);
+    
+    // Draw frown (∩ shape)
+    for (int t = -2; t <= 2; t++) {
+      for (int i = -w; i <= w; i++) {
+        float n = (float)i / w;
+        // Inverted parabola for frown
+        int py = cy - (int)(n * n * depth) + t;
+        tft.drawPixel(cx + i, py, C_BLACK);
+      }
+    }
+    
+    // Wobble lip for very sad
+    if (smile < -50) {
+      // Small circle at center of frown
+      int wobY = cy - depth - 3;
+      tft.fillCircle(cx, wobY, 6, C_BLACK);
+    }
+    
+  } else {
+    // ═══ NEUTRAL: straight line ═══
+    for (int t = -2; t <= 2; t++) {
+      tft.drawFastHLine(cx - w, cy + t, w * 2, C_BLACK);
     }
   }
 }
 
-void updateFaceAnimation() {
-  if (millis() - lastFrameMs < 50) return;
-  lastFrameMs = millis();
+// ══════════════════════════════════════════════════════════════
+//  FACE ANIMATION
+// ══════════════════════════════════════════════════════════════
 
-  FaceParams old = currentFace;
-
-  currentFace.eyeOpen     += constrain(targetFace.eyeOpen - currentFace.eyeOpen, -2, 2);
-  currentFace.pupilOffset += constrain(targetFace.pupilOffset - currentFace.pupilOffset, -1, 1);
-  currentFace.mouthCurve  += constrain(targetFace.mouthCurve - currentFace.mouthCurve, -1, 1);
-  currentFace.eyesClosed   = targetFace.eyesClosed;
-
-  bool eyesChanged = (currentFace.eyeOpen != old.eyeOpen ||
-                      currentFace.pupilOffset != old.pupilOffset ||
-                      currentFace.eyesClosed != old.eyesClosed);
-  bool mouthChanged = (currentFace.mouthCurve != old.mouthCurve);
-
-  if (eyesChanged) { clearEyes(); drawEyes(); }
-  if (mouthChanged) { clearMouth(); drawMouth(); }
+void animateFace() {
+  if (millis() - lastAnimMs < 50) return;
+  lastAnimMs = millis();
+  
+  FaceState old = face;
+  
+  // Smooth interpolation
+  face.eyeOpenness  += constrain(faceTarget.eyeOpenness - face.eyeOpenness, -2, 2);
+  face.pupilY       += constrain(faceTarget.pupilY - face.pupilY, -1, 1);
+  face.smileAmount  += constrain(faceTarget.smileAmount - face.smileAmount, -3, 3);
+  face.eyesClosed    = faceTarget.eyesClosed;
+  face.mouthOpen     = faceTarget.mouthOpen;
+  
+  bool eyeChg = (face.eyeOpenness != old.eyeOpenness || 
+                  face.pupilY != old.pupilY ||
+                  face.eyesClosed != old.eyesClosed);
+  bool mthChg = (face.smileAmount != old.smileAmount ||
+                  face.mouthOpen != old.mouthOpen);
+  
+  if (eyeChg) { clearEyeRegion(); drawEyes(); }
+  if (mthChg) { clearMouthRegion(); drawMouth(); }
 }
 
-void handleBlink() {
-  if (currentFace.eyesClosed) return;
+void blinkCheck() {
+  if (face.eyesClosed) return;
   if (millis() - lastBlinkMs > 3500) {
     lastBlinkMs = millis();
-
-    clearEyes();
-    int ey = CENTER_Y + EYE_Y_OFFSET;
-    drawSingleEye(CENTER_X - EYE_SPACING, ey, true);
-    drawSingleEye(CENTER_X + EYE_SPACING, ey, true);
+    
+    clearEyeRegion();
+    int ey = CY + F_EYE_Y;
+    drawOneEye(CX - F_EYE_SPACE, ey, true);
+    drawOneEye(CX + F_EYE_SPACE, ey, true);
     delay(100);
-    clearEyes();
+    clearEyeRegion();
     drawEyes();
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-//  EMOTION → FACE MAPPING
-// ══════════════════════════════════════════════════════════════
-
-FaceParams emotionToFace(Emotion e) {
-  switch (e) {
-    case Emotion::NEUTRAL:    return {30, 0, 3, false};
-    case Emotion::CALM:       return {28, 0, 5, false};
-    case Emotion::HAPPY:      return {0, 0, 10, true};
-    case Emotion::PROUD:      return {0, 0, 14, true};
-    case Emotion::VERY_PROUD: return {0, 0, 16, true};
-    case Emotion::SAD:        return {32, 5, -5, false};
-    case Emotion::VERY_SAD:   return {34, 8, -10, false};
-    case Emotion::REMINDER:   return {34, 6, -8, false};
-    default:                  return {28, 0, 5, false};
-  }
-}
-
-String emotionToString(Emotion e) {
-  switch (e) {
-    case Emotion::NEUTRAL:    return "Neutral";
-    case Emotion::CALM:       return "Calm";
-    case Emotion::HAPPY:      return "Happy";
-    case Emotion::PROUD:      return "Proud";
-    case Emotion::VERY_PROUD: return "Very Proud";
-    case Emotion::SAD:        return "Sad";
-    case Emotion::VERY_SAD:   return "Very Sad";
-    case Emotion::REMINDER:   return "Reminder";
-    default:                  return "Unknown";
-  }
-}
-
-// ══════════════════════════════════════════════════════════════
-//  UTILITIES
+//  UTILITY FUNCTIONS
 // ══════════════════════════════════════════════════════════════
 
 uint32_t getEpoch() {
@@ -1111,18 +1348,18 @@ uint32_t getEpoch() {
   return millis() / 1000;
 }
 
-uint32_t getBookSeconds(uint8_t i) {
-  uint32_t total = books[i].cumulativeSeconds;
-  if (books[i].tracking && books[i].placedEpoch > 0) {
+uint32_t getBookSecs(uint8_t i) {
+  uint32_t total = books[i].totalStudySeconds;
+  if (books[i].isBeingStudied && books[i].removedEpoch > 0) {
     uint32_t now = getEpoch();
-    if (now > books[i].placedEpoch) {
-      total += (now - books[i].placedEpoch);
+    if (now > books[i].removedEpoch) {
+      total += (now - books[i].removedEpoch);
     }
   }
   return total;
 }
 
-String formatSeconds(uint32_t s) {
+String fmtSecs(uint32_t s) {
   uint32_t h = s / 3600;
   uint32_t m = (s % 3600) / 60;
   uint32_t sec = s % 60;
@@ -1133,31 +1370,26 @@ String formatSeconds(uint32_t s) {
   return String(buf);
 }
 
-void playAudio(uint8_t track) {
-  if (hw_dfplayer && settings.soundEnabled) {
-    dfPlayer.playMp3Folder(track);
-  }
+void playTrack(uint8_t t) {
+  if (hw_df && cfg.soundOn) df.playMp3Folder(t);
 }
 
-void buzz(uint16_t onMs, uint16_t offMs, uint8_t repeats) {
-  for (uint8_t i = 0; i < repeats; i++) {
-    digitalWrite(BUZZER_PIN, HIGH);
+void buzzPattern(uint8_t count, uint16_t onMs, uint16_t offMs) {
+  for (uint8_t i = 0; i < count; i++) {
+    digitalWrite(PIN_BUZZER, HIGH);
     delay(onMs);
-    digitalWrite(BUZZER_PIN, LOW);
-    if (offMs > 0 && i < repeats - 1) delay(offMs);
+    digitalWrite(PIN_BUZZER, LOW);
+    if (offMs > 0 && i < count - 1) delay(offMs);
   }
 }
 
-void addHistory(const char* event, const char* detail) {
-  HistoryEntry& e = history[historyHead];
+void addHist(const char* ev, const char* det) {
+  HistEvent& e = hist[histHead];
   e.epoch = getEpoch();
-  strncpy(e.event, event, sizeof(e.event) - 1);
-  e.event[sizeof(e.event) - 1] = 0;
-  strncpy(e.detail, detail, sizeof(e.detail) - 1);
-  e.detail[sizeof(e.detail) - 1] = 0;
-
-  historyHead = (historyHead + 1) % HISTORY_SIZE;
-  if (historyCount < HISTORY_SIZE) historyCount++;
+  strncpy(e.event, ev, 19); e.event[19] = 0;
+  strncpy(e.detail, det, 31); e.detail[31] = 0;
+  histHead = (histHead + 1) % HIST_MAX;
+  if (histCount < HIST_MAX) histCount++;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1165,16 +1397,16 @@ void addHistory(const char* event, const char* detail) {
 // ══════════════════════════════════════════════════════════════
 
 String buildStatusJson() {
-  StaticJsonDocument<1024> doc;
-
-  doc["firmware"] = FIRMWARE_VER;
-  doc["uptime"] = millis() / 1000;
-  doc["freeHeap"] = ESP.getFreeHeap();
-  doc["emotion"] = emotionToString(currentEmotion);
+  StaticJsonDocument<1536> doc;
+  
+  doc["fw"] = FW_VERSION;
+  doc["up"] = millis() / 1000;
+  doc["heap"] = ESP.getFreeHeap();
+  doc["emo"] = emoStr(emotion);
   doc["state"] = (int)sysState;
-  doc["booksPlaced"] = bookCount;
-  doc["degradeStage"] = degradeStage;
-
+  doc["studying"] = booksBeingStudied;
+  doc["degrade"] = degradeLevel;
+  
   if (hw_rtc) {
     DateTime now = rtc.now();
     char buf[25];
@@ -1185,996 +1417,649 @@ String buildStatusJson() {
   } else {
     doc["time"] = "N/A";
   }
-
-  JsonObject hw = doc.createNestedObject("hardware");
+  
+  JsonObject hw = doc.createNestedObject("hw");
   hw["rtc"] = hw_rtc;
-  hw["dfplayer"] = hw_dfplayer;
+  hw["df"] = hw_df;
   hw["wifi"] = hw_wifi;
-
-  JsonArray booksArr = doc.createNestedArray("books");
+  hw["ntp"] = hw_ntp;
+  hw["rssi"] = WiFi.RSSI();
+  
+  JsonArray bArr = doc.createNestedArray("books");
   uint32_t totalStudy = 0;
   for (int i = 0; i < 5; i++) {
-    JsonObject b = booksArr.createNestedObject();
-    b["name"] = books[i].name;
-    b["present"] = books[i].present;
-    b["seconds"] = getBookSeconds(i);
-    totalStudy += getBookSeconds(i);
+    JsonObject b = bArr.createNestedObject();
+    b["n"] = books[i].name;
+    b["s"] = !books[i].isOnRack;  // studying = not on rack
+    b["t"] = getBookSecs(i);
+    totalStudy += getBookSecs(i);
   }
-  doc["totalStudySeconds"] = totalStudy;
-
-  JsonObject timing = doc.createNestedObject("timing");
-  timing["bootCalm"] = (sysState == SystemState::BOOT_CALM);
-  timing["calmHold"] = (sysState == SystemState::CALM_HOLD);
-  timing["degrading"] = (sysState == SystemState::DEGRADING);
-  timing["stateElapsedMs"] = millis() - stateEnteredAt;
-
-  JsonObject sett = doc.createNestedObject("settings");
-  sett["volume"] = settings.volume;
-  sett["soundEnabled"] = settings.soundEnabled;
-  sett["bootCalmMs"] = settings.bootCalmMs;
-  sett["calmHoldMs"] = settings.calmHoldMs;
-  sett["degradeIntervalMs"] = settings.degradeIntervalMs;
-
-  String output;
-  serializeJson(doc, output);
-  return output;
+  doc["total"] = totalStudy;
+  
+  JsonObject t = doc.createNestedObject("timing");
+  t["idle"] = millis() - lastActivityMs;
+  t["stateMs"] = millis() - stateStartMs;
+  
+  JsonObject s = doc.createNestedObject("cfg");
+  s["vol"] = cfg.volume;
+  s["snd"] = cfg.soundOn;
+  s["bcalm"] = cfg.bootCalmMs;
+  s["dstep"] = cfg.degradeStepMs;
+  s["dstages"] = cfg.degradeStages;
+  
+  String out;
+  serializeJson(doc, out);
+  return out;
 }
 
-String buildHistoryJson() {
+String buildHistJson() {
   StaticJsonDocument<4096> doc;
-  JsonArray arr = doc.createNestedArray("history");
-
-  int idx = (historyHead - historyCount + HISTORY_SIZE) % HISTORY_SIZE;
-  for (int i = 0; i < historyCount; i++) {
-    JsonObject entry = arr.createNestedObject();
-    entry["epoch"] = history[idx].epoch;
-    entry["event"] = history[idx].event;
-    entry["detail"] = history[idx].detail;
-    idx = (idx + 1) % HISTORY_SIZE;
+  JsonArray arr = doc.createNestedArray("hist");
+  
+  int idx = (histHead - histCount + HIST_MAX) % HIST_MAX;
+  for (int i = 0; i < histCount; i++) {
+    JsonObject e = arr.createNestedObject();
+    e["t"] = hist[idx].epoch;
+    e["e"] = hist[idx].event;
+    e["d"] = hist[idx].detail;
+    idx = (idx + 1) % HIST_MAX;
   }
-
-  String output;
-  serializeJson(doc, output);
-  return output;
+  
+  String out;
+  serializeJson(doc, out);
+  return out;
 }
 
 // ══════════════════════════════════════════════════════════════
 //  WEBSOCKET
 // ══════════════════════════════════════════════════════════════
 
-void initWebSocket() {
-  ws.onEvent([](AsyncWebSocket* srv, AsyncWebSocketClient* client,
+void setupWebSocket() {
+  ws.onEvent([](AsyncWebSocket* srv, AsyncWebSocketClient* cli,
                 AwsEventType type, void* arg, uint8_t* data, size_t len) {
-    switch (type) {
-      case WS_EVT_CONNECT:
-        Serial.printf("WS[%u] connected\n", client->id());
-        client->text(buildStatusJson());
-        break;
-      case WS_EVT_DISCONNECT:
-        Serial.printf("WS[%u] disconnected\n", client->id());
-        break;
-      case WS_EVT_DATA: {
-        AwsFrameInfo* info = (AwsFrameInfo*)arg;
-        if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-          String msg = "";
-          for (size_t i = 0; i < len; i++) msg += (char)data[i];
-
-          StaticJsonDocument<256> cmdDoc;
-          DeserializationError err = deserializeJson(cmdDoc, msg);
-          if (!err) {
-            handleWsCommand(client, cmdDoc);
-          }
+    if (type == WS_EVT_CONNECT) {
+      Serial.printf("WS[%u] connected\n", cli->id());
+      cli->text(buildStatusJson());
+    } 
+    else if (type == WS_EVT_DISCONNECT) {
+      Serial.printf("WS[%u] disconnected\n", cli->id());
+    }
+    else if (type == WS_EVT_DATA) {
+      AwsFrameInfo* info = (AwsFrameInfo*)arg;
+      if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+        String msg;
+        for (size_t i = 0; i < len; i++) msg += (char)data[i];
+        
+        StaticJsonDocument<256> cmd;
+        if (deserializeJson(cmd, msg) == DeserializationError::Ok) {
+          handleWsCmd(cli, cmd);
         }
-        break;
       }
-      default:
-        break;
     }
   });
-  server.addHandler(&ws);
-  Serial.println("✓ WebSocket at /ws");
+  webServer.addHandler(&ws);
+  Serial.println("✓ WebSocket /ws");
 }
 
-void handleWsCommand(AsyncWebSocketClient* client, StaticJsonDocument<256>& doc) {
-  const char* cmd = doc["cmd"];
-  if (!cmd) return;
-
-  if (strcmp(cmd, "ping") == 0) {
-    client->text("{\"cmd\":\"pong\"}");
+void handleWsCmd(AsyncWebSocketClient* cli, StaticJsonDocument<256>& doc) {
+  const char* c = doc["cmd"];
+  if (!c) return;
+  
+  if (strcmp(c, "ping") == 0) {
+    cli->text("{\"cmd\":\"pong\"}");
   }
-  else if (strcmp(cmd, "status") == 0) {
-    client->text(buildStatusJson());
+  else if (strcmp(c, "status") == 0) {
+    cli->text(buildStatusJson());
   }
-  else if (strcmp(cmd, "history") == 0) {
-    client->text(buildHistoryJson());
+  else if (strcmp(c, "hist") == 0) {
+    cli->text(buildHistJson());
   }
-  else if (strcmp(cmd, "setVolume") == 0) {
-    int vol = doc["value"] | 22;
-    settings.volume = constrain(vol, 0, 30);
-    if (hw_dfplayer) dfPlayer.volume(settings.volume);
-    saveSettings();
-    client->text("{\"cmd\":\"ok\",\"action\":\"volume\",\"value\":" + String(settings.volume) + "}");
-  }
-  else if (strcmp(cmd, "setSound") == 0) {
-    settings.soundEnabled = doc["value"] | true;
-    saveSettings();
-    client->text("{\"cmd\":\"ok\",\"action\":\"sound\"}");
-  }
-  else if (strcmp(cmd, "resetTimers") == 0) {
-    for (int i = 0; i < 5; i++) {
-      books[i].cumulativeSeconds = 0;
-      books[i].sessionSeconds = 0;
-    }
-    addHistory("RESET", "Timers cleared");
-    client->text("{\"cmd\":\"ok\",\"action\":\"resetTimers\"}");
-  }
-  else if (strcmp(cmd, "syncTime") == 0) {
-    uint32_t epoch = doc["epoch"] | 0;
-    if (hw_rtc && epoch > 1000000000) {
-      rtc.adjust(DateTime(epoch));
-      addHistory("SYNC", "Time synced");
-      client->text("{\"cmd\":\"ok\",\"action\":\"syncTime\"}");
+  else if (strcmp(c, "syncTime") == 0) {
+    bool ok = syncNTPtoRTC();
+    if (ok) {
+      playTrack(Audio::TIME_SYNCED);
+      cli->text("{\"cmd\":\"ok\",\"act\":\"syncTime\"}");
     } else {
-      client->text("{\"cmd\":\"error\",\"msg\":\"Invalid epoch or no RTC\"}");
+      // Fallback: use epoch from client
+      uint32_t epoch = doc["epoch"] | 0;
+      if (hw_rtc && epoch > 1000000000) {
+        rtc.adjust(DateTime(epoch));
+        addHist("SYNC", "Manual epoch");
+        playTrack(Audio::TIME_SYNCED);
+        cli->text("{\"cmd\":\"ok\",\"act\":\"syncTime\",\"src\":\"manual\"}");
+      } else {
+        cli->text("{\"cmd\":\"err\",\"msg\":\"NTP failed, no epoch\"}");
+      }
     }
   }
-  else if (strcmp(cmd, "playAudio") == 0) {
-    int track = doc["track"] | 0;
-    if (track > 0) playAudio(track);
-    client->text("{\"cmd\":\"ok\",\"action\":\"playAudio\"}");
-  }
-  else if (strcmp(cmd, "buzz") == 0) {
-    buzz(200, 100, 2);
-    client->text("{\"cmd\":\"ok\",\"action\":\"buzz\"}");
-  }
-  else if (strcmp(cmd, "updateSettings") == 0) {
-    if (doc.containsKey("bootCalmMs")) settings.bootCalmMs = doc["bootCalmMs"];
-    if (doc.containsKey("calmHoldMs")) settings.calmHoldMs = doc["calmHoldMs"];
-    if (doc.containsKey("degradeIntervalMs")) settings.degradeIntervalMs = doc["degradeIntervalMs"];
+  else if (strcmp(c, "vol") == 0) {
+    cfg.volume = constrain(doc["v"] | 22, 0, 30);
+    if (hw_df) df.volume(cfg.volume);
     saveSettings();
-    client->text("{\"cmd\":\"ok\",\"action\":\"updateSettings\"}");
+    cli->text("{\"cmd\":\"ok\",\"act\":\"vol\"}");
+  }
+  else if (strcmp(c, "snd") == 0) {
+    cfg.soundOn = doc["v"] | true;
+    saveSettings();
+    cli->text("{\"cmd\":\"ok\",\"act\":\"snd\"}");
+  }
+  else if (strcmp(c, "reset") == 0) {
+    for (int i = 0; i < 5; i++) {
+      books[i].totalStudySeconds = 0;
+      books[i].lastSessionSecs = 0;
+    }
+    addHist("RESET", "Timers cleared");
+    cli->text("{\"cmd\":\"ok\",\"act\":\"reset\"}");
+  }
+  else if (strcmp(c, "play") == 0) {
+    int t = doc["t"] | 0;
+    if (t > 0) playTrack(t);
+    cli->text("{\"cmd\":\"ok\"}");
+  }
+  else if (strcmp(c, "buzz") == 0) {
+    buzzPattern(2, 200, 100);
+    cli->text("{\"cmd\":\"ok\"}");
+  }
+  else if (strcmp(c, "cfg") == 0) {
+    if (doc.containsKey("bcalm")) cfg.bootCalmMs = doc["bcalm"];
+    if (doc.containsKey("dstep")) cfg.degradeStepMs = doc["dstep"];
+    if (doc.containsKey("dstages")) cfg.degradeStages = doc["dstages"];
+    saveSettings();
+    cli->text("{\"cmd\":\"ok\",\"act\":\"cfg\"}");
   }
 }
 
-void updateWebSocket() {
+void broadcastWs() {
   if (!hw_wifi || ws.count() == 0) return;
-  if (millis() - lastWsBroadcast < 2000) return;
-  lastWsBroadcast = millis();
+  if (millis() - lastWsMs < 2000) return;
+  lastWsMs = millis();
   ws.textAll(buildStatusJson());
 }
 
 // ══════════════════════════════════════════════════════════════
-//  WEB SERVER - EMBEDDED DASHBOARD
+//  WEB SERVER + EMBEDDED DASHBOARD
 // ══════════════════════════════════════════════════════════════
 
-void initWebServer() {
+void setupWebServer() {
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
-  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  // ── Main Dashboard Page ──
-  server.on("/", HTTP_GET, serveMainPage);
-
-  // ── REST API ──
-  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", buildStatusJson());
+  
+  // Main dashboard
+  webServer.on("/", HTTP_GET, serveDashboard);
+  
+  // REST API
+  webServer.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* r) {
+    r->send(200, "application/json", buildStatusJson());
   });
-
-  server.on("/api/history", HTTP_GET, [](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", buildHistoryJson());
+  
+  webServer.on("/api/history", HTTP_GET, [](AsyncWebServerRequest* r) {
+    r->send(200, "application/json", buildHistJson());
   });
-
-  server.on("/api/settings", HTTP_GET, [](AsyncWebServerRequest* req) {
-    StaticJsonDocument<256> doc;
-    doc["volume"] = settings.volume;
-    doc["soundEnabled"] = settings.soundEnabled;
-    doc["bootCalmMs"] = settings.bootCalmMs;
-    doc["calmHoldMs"] = settings.calmHoldMs;
-    doc["degradeIntervalMs"] = settings.degradeIntervalMs;
-    String output;
-    serializeJson(doc, output);
-    req->send(200, "application/json", output);
+  
+  webServer.on("/api/sync", HTTP_POST, [](AsyncWebServerRequest* r) {
+    bool ok = syncNTPtoRTC();
+    r->send(200, "application/json", ok ? 
+      "{\"ok\":true,\"src\":\"NTP\"}" : "{\"ok\":false,\"msg\":\"NTP failed\"}");
   });
-
-  server.on("/api/synctime", HTTP_POST, [](AsyncWebServerRequest* req) {}, NULL,
-    [](AsyncWebServerRequest* req, uint8_t* data, size_t len, size_t index, size_t total) {
-      StaticJsonDocument<128> doc;
-      String body = "";
+  
+  webServer.on("/api/sync", HTTP_POST, [](AsyncWebServerRequest* r){}, NULL,
+    [](AsyncWebServerRequest* r, uint8_t* data, size_t len, size_t idx, size_t total) {
+      // Try NTP first
+      if (syncNTPtoRTC()) {
+        r->send(200, "application/json", "{\"ok\":true,\"src\":\"NTP\"}");
+        return;
+      }
+      // Fallback to client epoch
+      String body;
       for (size_t i = 0; i < len; i++) body += (char)data[i];
-
+      StaticJsonDocument<128> doc;
       if (deserializeJson(doc, body) == DeserializationError::Ok) {
         uint32_t epoch = doc["epoch"] | 0;
         if (hw_rtc && epoch > 1000000000) {
           rtc.adjust(DateTime(epoch));
-          addHistory("SYNC", "Time synced via API");
-          req->send(200, "application/json", "{\"success\":true}");
+          addHist("SYNC", "Client epoch");
+          r->send(200, "application/json", "{\"ok\":true,\"src\":\"client\"}");
           return;
         }
       }
-      req->send(400, "application/json", "{\"error\":\"Invalid request\"}");
+      r->send(400, "application/json", "{\"ok\":false}");
     }
   );
-
-  server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest* req) {
+  
+  webServer.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest* r) {
     for (int i = 0; i < 5; i++) {
-      books[i].cumulativeSeconds = 0;
-      books[i].sessionSeconds = 0;
+      books[i].totalStudySeconds = 0;
+      books[i].lastSessionSecs = 0;
     }
-    addHistory("RESET", "Via API");
-    req->send(200, "application/json", "{\"success\":true}");
+    addHist("RESET", "API");
+    r->send(200, "application/json", "{\"ok\":true}");
   });
-
-  server.on("/api/info", HTTP_GET, [](AsyncWebServerRequest* req) {
-    StaticJsonDocument<256> doc;
-    doc["device"] = DEVICE_NAME;
-    doc["firmware"] = FIRMWARE_VER;
-    doc["chip"] = ESP.getChipModel();
-    doc["cpuFreq"] = ESP.getCpuFreqMHz();
-    doc["freeHeap"] = ESP.getFreeHeap();
-    doc["totalHeap"] = ESP.getHeapSize();
-    doc["uptime"] = millis() / 1000;
-    doc["ip"] = WiFi.localIP().toString();
-    doc["rssi"] = WiFi.RSSI();
-    doc["mac"] = WiFi.macAddress();
-
-    String output;
-    serializeJson(doc, output);
-    req->send(200, "application/json", output);
+  
+  webServer.on("/api/info", HTTP_GET, [](AsyncWebServerRequest* r) {
+    StaticJsonDocument<256> d;
+    d["dev"] = DEVICE_NAME;
+    d["fw"] = FW_VERSION;
+    d["chip"] = ESP.getChipModel();
+    d["mhz"] = ESP.getCpuFreqMHz();
+    d["heap"] = ESP.getFreeHeap();
+    d["up"] = millis() / 1000;
+    d["ip"] = WiFi.localIP().toString();
+    d["rssi"] = WiFi.RSSI();
+    d["mac"] = WiFi.macAddress();
+    String out; serializeJson(d, out);
+    r->send(200, "application/json", out);
   });
-
-  // ── OTA Update ──
-  server.on("/update", HTTP_POST,
-    [](AsyncWebServerRequest* req) {
+  
+  // OTA
+  webServer.on("/update", HTTP_POST,
+    [](AsyncWebServerRequest* r) {
       bool ok = !Update.hasError();
-      req->send(200, "application/json",
-                ok ? "{\"success\":true,\"msg\":\"Rebooting...\"}"
-                   : "{\"success\":false,\"msg\":\"Update failed\"}");
-      if (ok) delay(1000);
-      if (ok) ESP.restart();
+      r->send(200, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
+      if (ok) { delay(1000); ESP.restart(); }
     },
-    [](AsyncWebServerRequest* req, const String& filename, size_t index,
-       uint8_t* data, size_t len, bool final) {
-      if (!index) {
-        Serial.printf("OTA Start: %s\n", filename.c_str());
-        Update.begin(UPDATE_SIZE_UNKNOWN);
-      }
+    [](AsyncWebServerRequest* r, const String& fn, size_t idx, uint8_t* data, size_t len, bool final) {
+      if (!idx) Update.begin(UPDATE_SIZE_UNKNOWN);
       Update.write(data, len);
-      if (final) {
-        Update.end(true);
-        Serial.println("OTA Complete");
-      }
+      if (final) Update.end(true);
     }
   );
-
-  server.begin();
-  Serial.printf("✓ Web server at http://%s/\n", WiFi.localIP().toString().c_str());
-  Serial.printf("  Also: http://%s.local/\n", MDNS_NAME);
+  
+  webServer.begin();
+  Serial.printf("✓ Server: http://%s/ | http://%s.local/\n", 
+                WiFi.localIP().toString().c_str(), MDNS_NAME);
 }
 
 // ══════════════════════════════════════════════════════════════
-//  EMBEDDED DASHBOARD HTML
+//  FULL EMBEDDED DASHBOARD (Single Page Application)
 // ══════════════════════════════════════════════════════════════
 
-void serveMainPage(AsyncWebServerRequest* req) {
-  // This is the complete single-page dashboard
-  // Using raw string literals for the HTML
-
-  String html = R"rawhtml(
+void serveDashboard(AsyncWebServerRequest* req) {
+  
+  String html = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BookBuddy Dashboard</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#0f172a;--card:#1e293b;--card2:#334155;
-  --accent:#3b82f6;--accent2:#60a5fa;
-  --green:#22c55e;--red:#ef4444;--amber:#f59e0b;--purple:#a855f7;
-  --text:#f1f5f9;--text2:#94a3b8;--border:#475569;
-  --radius:16px;
-}
-body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
-.container{max-width:1200px;margin:0 auto;padding:16px}
+:root{--bg:#0f172a;--c1:#1e293b;--c2:#334155;--c3:#475569;
+--a:#3b82f6;--a2:#60a5fa;--g:#22c55e;--r:#ef4444;--y:#f59e0b;--p:#a855f7;
+--t:#f1f5f9;--t2:#94a3b8;--rd:14px}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--t);min-height:100vh}
+.wrap{max-width:1200px;margin:0 auto;padding:12px}
 
 /* Header */
-.header{text-align:center;padding:24px 0 16px;position:relative}
-.header h1{font-size:2.2em;font-weight:800;background:linear-gradient(135deg,var(--accent2),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline}
-.header .subtitle{color:var(--text2);font-size:.95em;margin-top:4px}
-.conn-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 16px;border-radius:20px;font-size:.85em;font-weight:600;margin-top:8px}
-.conn-badge.online{background:#22c55e22;color:var(--green);border:1px solid #22c55e44}
-.conn-badge.offline{background:#ef444422;color:var(--red);border:1px solid #ef444444}
-.conn-dot{width:8px;height:8px;border-radius:50%;background:currentColor;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-
-/* Grid */
-.grid{display:grid;gap:16px;margin-top:16px}
-.grid-2{grid-template-columns:1fr 1fr}
-.grid-3{grid-template-columns:1fr 1fr 1fr}
-.grid-5{grid-template-columns:repeat(5,1fr)}
-@media(max-width:900px){.grid-3,.grid-5{grid-template-columns:1fr 1fr}.grid-2{grid-template-columns:1fr}}
-@media(max-width:600px){.grid-2,.grid-3,.grid-5{grid-template-columns:1fr}}
-
-/* Cards */
-.card{background:var(--card);border-radius:var(--radius);padding:20px;border:1px solid var(--border);transition:transform .2s,box-shadow .2s}
-.card:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(0,0,0,.3)}
-.card h3{font-size:.85em;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-.card .value{font-size:2em;font-weight:700}
-.card .detail{font-size:.8em;color:var(--text2);margin-top:4px}
-
-/* Emotion Card */
-.emotion-card{text-align:center;padding:30px;position:relative;overflow:hidden}
-.emotion-face{font-size:4em;margin-bottom:8px}
-.emotion-name{font-size:1.5em;font-weight:700}
-.emotion-bar{height:4px;border-radius:2px;margin-top:12px;background:var(--card2)}
-.emotion-bar-fill{height:100%;border-radius:2px;transition:width .5s}
-
-/* Book Cards */
-.book-card{position:relative;overflow:hidden}
-.book-card .status-dot{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:8px;transition:background .3s}
-.book-card .status-dot.on{background:var(--green);box-shadow:0 0 8px var(--green)}
-.book-card .status-dot.off{background:var(--border)}
-.book-card .book-name{font-size:1.1em;font-weight:600}
-.book-card .book-time{font-size:1.5em;font-weight:700;margin-top:8px;font-variant-numeric:tabular-nums}
-.book-card .book-status{font-size:.8em;color:var(--text2);margin-top:4px}
-.book-card.active{border-color:var(--green)}
-.book-card.active::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--green)}
-
-/* Progress Bar */
-.progress-section{padding:24px}
-.progress-bar{height:24px;background:var(--card2);border-radius:12px;overflow:hidden;position:relative}
-.progress-fill{height:100%;border-radius:12px;background:linear-gradient(90deg,var(--accent),var(--green));transition:width .5s;position:relative}
-.progress-text{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:.8em;font-weight:600}
-.progress-label{display:flex;justify-content:space-between;margin-top:8px;font-size:.85em;color:var(--text2)}
-
-/* History */
-.history-list{max-height:400px;overflow-y:auto;padding-right:8px}
-.history-list::-webkit-scrollbar{width:6px}
-.history-list::-webkit-scrollbar-track{background:var(--card2);border-radius:3px}
-.history-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-.history-item{display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;margin-bottom:4px;background:var(--card2);font-size:.9em}
-.history-item .h-icon{font-size:1.2em;min-width:28px;text-align:center}
-.history-item .h-time{color:var(--text2);font-size:.8em;min-width:60px}
-.history-item .h-event{font-weight:600}
-.history-item .h-detail{color:var(--text2);margin-left:auto}
-
-/* Controls */
-.controls-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:600px){.controls-grid{grid-template-columns:1fr}}
-.btn{padding:12px 20px;border:none;border-radius:12px;font-size:.95em;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--text)}
-.btn:hover{transform:translateY(-1px)}
-.btn:active{transform:scale(.97)}
-.btn-primary{background:var(--accent)}
-.btn-primary:hover{background:#2563eb}
-.btn-green{background:var(--green)}
-.btn-green:hover{background:#16a34a}
-.btn-amber{background:var(--amber);color:#000}
-.btn-amber:hover{background:#d97706}
-.btn-red{background:var(--red)}
-.btn-red:hover{background:#dc2626}
-.btn-purple{background:var(--purple)}
-.btn-purple:hover{background:#9333ea}
-.btn-ghost{background:var(--card2);border:1px solid var(--border)}
-.btn-ghost:hover{background:var(--border)}
-
-/* Settings */
-.setting-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid var(--card2)}
-.setting-row:last-child{border-bottom:none}
-.setting-label{font-weight:500}
-.setting-label small{display:block;color:var(--text2);font-weight:400;font-size:.8em;margin-top:2px}
-.slider-wrap{display:flex;align-items:center;gap:12px}
-input[type=range]{-webkit-appearance:none;width:150px;height:6px;border-radius:3px;background:var(--card2);outline:none}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--accent);cursor:pointer}
-.toggle{position:relative;width:48px;height:26px;cursor:pointer}
-.toggle input{opacity:0;width:0;height:0}
-.toggle .slider{position:absolute;inset:0;background:var(--card2);border-radius:13px;transition:.3s}
-.toggle .slider::before{content:'';position:absolute;width:20px;height:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
-.toggle input:checked+.slider{background:var(--green)}
-.toggle input:checked+.slider::before{transform:translateX(22px)}
-
-/* HW Status */
-.hw-row{display:flex;align-items:center;gap:10px;padding:8px 0}
-.hw-dot{width:10px;height:10px;border-radius:50%}
-.hw-dot.ok{background:var(--green)}
-.hw-dot.fail{background:var(--red)}
+.hdr{text-align:center;padding:20px 0 12px}
+.hdr h1{font-size:2em;font-weight:800;background:linear-gradient(135deg,var(--a2),var(--p));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hdr .sub{color:var(--t2);font-size:.9em;margin-top:2px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:20px;font-size:.8em;font-weight:600;margin-top:6px}
+.badge.on{background:#22c55e22;color:var(--g);border:1px solid #22c55e44}
+.badge.off{background:#ef444422;color:var(--r);border:1px solid #ef444444}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;animation:pls 2s infinite}
+@keyframes pls{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* Tabs */
-.tabs{display:flex;gap:4px;margin-bottom:16px;background:var(--card);border-radius:12px;padding:4px;border:1px solid var(--border)}
-.tab{flex:1;padding:10px;text-align:center;border-radius:8px;cursor:pointer;font-weight:600;font-size:.9em;transition:all .2s;color:var(--text2)}
-.tab.active{background:var(--accent);color:#fff}
-.tab:hover:not(.active){background:var(--card2)}
+.tabs{display:flex;gap:3px;margin:12px 0;background:var(--c1);border-radius:12px;padding:3px;border:1px solid var(--c3)}
+.tb{flex:1;padding:10px;text-align:center;border-radius:9px;cursor:pointer;font-weight:600;font-size:.88em;color:var(--t2);transition:.2s}
+.tb.on{background:var(--a);color:#fff}.tb:hover:not(.on){background:var(--c2)}
+
+/* Grid */
+.g{display:grid;gap:14px;margin-top:14px}
+.g2{grid-template-columns:1fr 1fr}
+.g3{grid-template-columns:1fr 1fr 1fr}
+.g5{grid-template-columns:repeat(5,1fr)}
+@media(max-width:900px){.g3,.g5{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.g2,.g3,.g5{grid-template-columns:1fr}}
+
+/* Card */
+.cd{background:var(--c1);border-radius:var(--rd);padding:18px;border:1px solid var(--c3);transition:.2s}
+.cd:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+.cd h3{font-size:.82em;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.cd .val{font-size:2em;font-weight:700}
+.cd .det{font-size:.78em;color:var(--t2);margin-top:3px}
+
+/* Emotion */
+.emo-cd{text-align:center;padding:24px}
+.emo-face{font-size:3.8em;margin-bottom:6px}
+.emo-name{font-size:1.4em;font-weight:700}
+
+/* Book cards */
+.bk{position:relative;overflow:hidden}
+.bk.act{border-color:var(--g)}
+.bk.act::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--g)}
+.bk .sdot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px;transition:.3s}
+.bk .sdot.on{background:var(--g);box-shadow:0 0 8px var(--g)}
+.bk .sdot.off{background:var(--c3)}
+.bk .bn{font-size:1em;font-weight:600}
+.bk .bt{font-size:1.4em;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
+.bk .bs{font-size:.75em;color:var(--t2);margin-top:3px}
+
+/* Progress */
+.pbar{height:8px;background:var(--c2);border-radius:4px;overflow:hidden;margin-top:6px}
+.pfill{height:100%;border-radius:4px;transition:width .5s}
+
+/* History */
+.hlist{max-height:400px;overflow-y:auto}
+.hlist::-webkit-scrollbar{width:5px}
+.hlist::-webkit-scrollbar-track{background:var(--c2);border-radius:3px}
+.hlist::-webkit-scrollbar-thumb{background:var(--c3);border-radius:3px}
+.hi{display:flex;align-items:center;gap:10px;padding:9px;border-radius:8px;margin-bottom:3px;background:var(--c2);font-size:.88em}
+.hi .ic{font-size:1.1em;min-width:24px;text-align:center}
+.hi .ht{color:var(--t2);font-size:.78em;min-width:50px}
+.hi .he{font-weight:600}
+.hi .hd{color:var(--t2);margin-left:auto;font-size:.85em}
+
+/* Buttons */
+.btn{padding:11px 18px;border:none;border-radius:11px;font-size:.92em;font-weight:600;cursor:pointer;transition:.2s;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--t);width:100%}
+.btn:hover{transform:translateY(-1px)}.btn:active{transform:scale(.97)}
+.btn-a{background:var(--a)}.btn-g{background:var(--g)}.btn-y{background:var(--y);color:#000}
+.btn-r{background:var(--r)}.btn-p{background:var(--p)}.btn-o{background:var(--c2);border:1px solid var(--c3)}
+.cg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:600px){.cg{grid-template-columns:1fr}}
+
+/* Settings */
+.sr{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--c2)}
+.sr:last-child{border-bottom:none}
+.sr .sl{font-weight:500}
+.sr .sl small{display:block;color:var(--t2);font-weight:400;font-size:.78em;margin-top:1px}
+.sw{display:flex;align-items:center;gap:10px}
+input[type=range]{-webkit-appearance:none;width:140px;height:5px;border-radius:3px;background:var(--c2);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--a);cursor:pointer}
+.tgl{position:relative;width:44px;height:24px;cursor:pointer}
+.tgl input{opacity:0;width:0;height:0}
+.tgl .sldr{position:absolute;inset:0;background:var(--c2);border-radius:12px;transition:.3s}
+.tgl .sldr::before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s}
+.tgl input:checked+.sldr{background:var(--g)}
+.tgl input:checked+.sldr::before{transform:translateX(20px)}
+
+/* HW */
+.hw{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:.9em}
+.hwd{width:9px;height:9px;border-radius:50%}
+.hwd.ok{background:var(--g)}.hwd.no{background:var(--r)}
 
 /* Toast */
-.toast{position:fixed;bottom:24px;right:24px;padding:14px 24px;border-radius:12px;font-weight:600;font-size:.9em;transform:translateY(100px);opacity:0;transition:all .3s;z-index:1000}
+.toast{position:fixed;bottom:20px;right:20px;padding:12px 22px;border-radius:11px;font-weight:600;font-size:.88em;transform:translateY(100px);opacity:0;transition:.3s;z-index:999}
 .toast.show{transform:translateY(0);opacity:1}
-.toast.success{background:var(--green);color:#fff}
-.toast.error{background:var(--red);color:#fff}
-.toast.info{background:var(--accent);color:#fff}
+.toast.ok{background:var(--g);color:#fff}.toast.er{background:var(--r);color:#fff}.toast.in{background:var(--a);color:#fff}
 
-/* Footer */
-.footer{text-align:center;padding:20px;color:var(--text2);font-size:.8em;margin-top:24px}
-
-/* Fade in animation */
-.fade-in{animation:fadeIn .5s ease}
-@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.ft{text-align:center;padding:16px;color:var(--t2);font-size:.75em;margin-top:20px}
+.fi{animation:fi .4s ease}
+@keyframes fi{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<div class="container">
-  <!-- Header -->
-  <div class="header fade-in">
-    <h1>📚 BookBuddy</h1>
-    <div class="subtitle">Smart Study Companion Dashboard</div>
-    <div id="connBadge" class="conn-badge offline">
-      <span class="conn-dot"></span>
-      <span id="connText">Connecting...</span>
-    </div>
+<div class="hdr fi">
+  <h1>📚 BookBuddy</h1>
+  <div class="sub">Smart Study Companion</div>
+  <div id="badge" class="badge off"><span class="dot"></span><span id="connTxt">Connecting...</span></div>
+</div>
+
+<div class="tabs fi">
+  <div class="tb on" onclick="tab('dash')">📊 Dashboard</div>
+  <div class="tb" onclick="tab('hist')">📜 History</div>
+  <div class="tb" onclick="tab('ctrl')">🎮 Controls</div>
+  <div class="tb" onclick="tab('sett')">⚙️ Settings</div>
+</div>
+
+<!-- ═══ DASHBOARD ═══ -->
+<div id="p-dash">
+<div class="g g3 fi">
+  <div class="cd emo-cd">
+    <div class="emo-face" id="eFace">😊</div>
+    <div class="emo-name" id="eName">--</div>
+    <div class="det" id="eState">--</div>
   </div>
-
-  <!-- Tabs -->
-  <div class="tabs fade-in" style="animation-delay:.1s">
-    <div class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</div>
-    <div class="tab" onclick="switchTab('history')">📜 History</div>
-    <div class="tab" onclick="switchTab('controls')">🎮 Controls</div>
-    <div class="tab" onclick="switchTab('settings')">⚙️ Settings</div>
+  <div class="cd" style="text-align:center">
+    <h3>Studying</h3>
+    <div class="val" id="sCount">-</div>
+    <div class="det">of 5 subjects</div>
+    <div class="pbar" style="margin-top:10px"><div class="pfill" id="sProg" style="width:0%;background:linear-gradient(90deg,var(--a),var(--g))"></div></div>
   </div>
-
-  <!-- ══════ DASHBOARD TAB ══════ -->
-  <div id="tab-dashboard">
-    <!-- Top Stats -->
-    <div class="grid grid-3 fade-in" style="animation-delay:.2s">
-      <div class="card emotion-card" id="emotionCard">
-        <div class="emotion-face" id="emotionFace">😊</div>
-        <div class="emotion-name" id="emotionName">Connecting...</div>
-        <div class="detail" id="stateDetail">--</div>
-      </div>
-      <div class="card" style="text-align:center">
-        <h3>Books Placed</h3>
-        <div class="value" id="bookCountDisplay">-</div>
-        <div class="detail">of 5 subjects</div>
-        <div class="progress-bar" style="margin-top:12px;height:8px">
-          <div class="progress-fill" id="bookProgress" style="width:0%"></div>
-        </div>
-      </div>
-      <div class="card" style="text-align:center">
-        <h3>Total Study Time</h3>
-        <div class="value" id="totalStudy">--</div>
-        <div class="detail" id="clockDisplay">--:--:--</div>
-      </div>
-    </div>
-
-    <!-- Book Cards -->
-    <div class="grid grid-5 fade-in" style="animation-delay:.3s;margin-top:16px">
-      <div class="card book-card" id="book-0">
-        <span class="status-dot off" id="dot-0"></span>
-        <span class="book-name">English</span>
-        <div class="book-time" id="time-0">0s</div>
-        <div class="book-status" id="status-0">Not placed</div>
-      </div>
-      <div class="card book-card" id="book-1">
-        <span class="status-dot off" id="dot-1"></span>
-        <span class="book-name">Hindi</span>
-        <div class="book-time" id="time-1">0s</div>
-        <div class="book-status" id="status-1">Not placed</div>
-      </div>
-      <div class="card book-card" id="book-2">
-        <span class="status-dot off" id="dot-2"></span>
-        <span class="book-name">Maths</span>
-        <div class="book-time" id="time-2">0s</div>
-        <div class="book-status" id="status-2">Not placed</div>
-      </div>
-      <div class="card book-card" id="book-3">
-        <span class="status-dot off" id="dot-3"></span>
-        <span class="book-name">Marathi</span>
-        <div class="book-time" id="time-3">0s</div>
-        <div class="book-status" id="status-3">Not placed</div>
-      </div>
-      <div class="card book-card" id="book-4">
-        <span class="status-dot off" id="dot-4"></span>
-        <span class="book-name">Science</span>
-        <div class="book-time" id="time-4">0s</div>
-        <div class="book-status" id="status-4">Not placed</div>
-      </div>
-    </div>
-
-    <!-- System Info -->
-    <div class="grid grid-2 fade-in" style="animation-delay:.4s;margin-top:16px">
-      <div class="card">
-        <h3>System Info</h3>
-        <div class="hw-row"><span class="hw-dot" id="hw-rtc"></span> RTC Clock</div>
-        <div class="hw-row"><span class="hw-dot" id="hw-dfplayer"></span> DFPlayer Audio</div>
-        <div class="hw-row"><span class="hw-dot" id="hw-wifi"></span> WiFi Connection</div>
-        <div style="margin-top:12px;font-size:.85em;color:var(--text2)">
-          <div>Firmware: <span id="fwVersion">--</span></div>
-          <div>Uptime: <span id="uptime">--</span></div>
-          <div>Free Heap: <span id="freeHeap">--</span></div>
-          <div>WiFi RSSI: <span id="rssi">--</span></div>
-        </div>
-      </div>
-      <div class="card">
-        <h3>Study Progress</h3>
-        <div id="progressBars"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════ HISTORY TAB ══════ -->
-  <div id="tab-history" style="display:none">
-    <div class="card fade-in">
-      <h3>Event History</h3>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span id="historyCount" style="color:var(--text2);font-size:.9em">Loading...</span>
-        <button class="btn btn-ghost" onclick="requestHistory()" style="padding:8px 16px;font-size:.85em">🔄 Refresh</button>
-      </div>
-      <div class="history-list" id="historyList">
-        <div style="text-align:center;padding:40px;color:var(--text2)">Waiting for data...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════ CONTROLS TAB ══════ -->
-  <div id="tab-controls" style="display:none">
-    <div class="card fade-in">
-      <h3>Remote Controls</h3>
-      <div class="controls-grid" style="margin-top:16px">
-        <button class="btn btn-primary" onclick="sendCmd('status')">📊 Get Status</button>
-        <button class="btn btn-green" onclick="syncTime()">🕐 Sync Time</button>
-        <button class="btn btn-amber" onclick="sendCmd('buzz')">🔔 Buzz</button>
-        <button class="btn btn-purple" onclick="sendCmd('playAudio',{track:34})">🎵 Play Chime</button>
-        <button class="btn btn-red" onclick="confirmReset()">🗑️ Reset Timers</button>
-        <button class="btn btn-ghost" onclick="requestHistory()">📜 Get History</button>
-      </div>
-    </div>
-
-    <div class="card fade-in" style="margin-top:16px">
-      <h3>Audio Test</h3>
-      <div class="controls-grid" style="margin-top:12px">
-        <button class="btn btn-ghost" onclick="sendCmd('playAudio',{track:1})">Hey!</button>
-        <button class="btn btn-ghost" onclick="sendCmd('playAudio',{track:3})">BookBuddy</button>
-        <button class="btn btn-ghost" onclick="sendCmd('playAudio',{track:5})">Time to Study</button>
-        <button class="btn btn-ghost" onclick="sendCmd('playAudio',{track:31})">Good Job</button>
-        <button class="btn btn-ghost" onclick="sendCmd('playAudio',{track:32})">Well Done</button>
-        <button class="btn btn-ghost" onclick="sendCmd('playAudio',{track:33})">Uh Oh</button>
-      </div>
-    </div>
-
-    <div class="card fade-in" style="margin-top:16px">
-      <h3>OTA Firmware Update</h3>
-      <form id="otaForm" style="margin-top:12px">
-        <input type="file" id="otaFile" accept=".bin" style="margin-bottom:12px;color:var(--text)">
-        <button type="submit" class="btn btn-amber" style="width:100%">📦 Upload Firmware</button>
-      </form>
-      <div id="otaProgress" style="display:none;margin-top:12px">
-        <div class="progress-bar"><div class="progress-fill" id="otaBar" style="width:0%"></div></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════ SETTINGS TAB ══════ -->
-  <div id="tab-settings" style="display:none">
-    <div class="card fade-in">
-      <h3>Device Settings</h3>
-
-      <div class="setting-row">
-        <div class="setting-label">Volume<small>Speaker volume (0-30)</small></div>
-        <div class="slider-wrap">
-          <span id="volVal">22</span>
-          <input type="range" min="0" max="30" value="22" id="volumeSlider" oninput="updateVolume(this.value)">
-        </div>
-      </div>
-
-      <div class="setting-row">
-        <div class="setting-label">Sound<small>Enable/disable audio</small></div>
-        <label class="toggle">
-          <input type="checkbox" checked id="soundToggle" onchange="toggleSound(this.checked)">
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="setting-row">
-        <div class="setting-label">Boot Calm (min)<small>Calm period after startup</small></div>
-        <div class="slider-wrap">
-          <span id="bcVal">5</span>
-          <input type="range" min="1" max="30" value="5" id="bootCalmSlider" oninput="document.getElementById('bcVal').textContent=this.value">
-        </div>
-      </div>
-
-      <div class="setting-row">
-        <div class="setting-label">Calm Hold (min)<small>Calm after all books placed</small></div>
-        <div class="slider-wrap">
-          <span id="chVal">5</span>
-          <input type="range" min="1" max="30" value="5" id="calmHoldSlider" oninput="document.getElementById('chVal').textContent=this.value">
-        </div>
-      </div>
-
-      <div class="setting-row">
-        <div class="setting-label">Degrade Interval (min)<small>Time per emotion stage</small></div>
-        <div class="slider-wrap">
-          <span id="diVal">5</span>
-          <input type="range" min="1" max="30" value="5" id="degradeSlider" oninput="document.getElementById('diVal').textContent=this.value">
-        </div>
-      </div>
-
-      <button class="btn btn-primary" onclick="saveSettingsToDevice()" style="width:100%;margin-top:16px">💾 Save Settings</button>
-    </div>
-  </div>
-
-  <div class="footer">
-    BookBuddy V1 &bull; <span id="ipDisplay">--</span> &bull; <span id="wsStatus">Disconnected</span>
+  <div class="cd" style="text-align:center">
+    <h3>Total Study</h3>
+    <div class="val" id="tStudy">--</div>
+    <div class="det" id="clock">--:--:--</div>
   </div>
 </div>
 
-<!-- Toast -->
+<div class="g g5 fi" style="margin-top:14px">
+  <div class="cd bk" id="b0"><span class="sdot off" id="d0"></span><span class="bn">English</span><div class="bt" id="t0">0s</div><div class="bs" id="s0">On rack</div></div>
+  <div class="cd bk" id="b1"><span class="sdot off" id="d1"></span><span class="bn">Hindi</span><div class="bt" id="t1">0s</div><div class="bs" id="s1">On rack</div></div>
+  <div class="cd bk" id="b2"><span class="sdot off" id="d2"></span><span class="bn">Maths</span><div class="bt" id="t2">0s</div><div class="bs" id="s2">On rack</div></div>
+  <div class="cd bk" id="b3"><span class="sdot off" id="d3"></span><span class="bn">Marathi</span><div class="bt" id="t3">0s</div><div class="bs" id="s3">On rack</div></div>
+  <div class="cd bk" id="b4"><span class="sdot off" id="d4"></span><span class="bn">Science</span><div class="bt" id="t4">0s</div><div class="bs" id="s4">On rack</div></div>
+</div>
+
+<div class="g g2 fi" style="margin-top:14px">
+  <div class="cd">
+    <h3>Hardware</h3>
+    <div class="hw"><span class="hwd" id="hRtc"></span> RTC DS3231</div>
+    <div class="hw"><span class="hwd" id="hDf"></span> DFPlayer Audio</div>
+    <div class="hw"><span class="hwd" id="hWifi"></span> WiFi</div>
+    <div class="hw"><span class="hwd" id="hNtp"></span> NTP Synced</div>
+    <div style="margin-top:10px;font-size:.82em;color:var(--t2)">
+      <div>FW: <span id="xFw">--</span></div>
+      <div>Uptime: <span id="xUp">--</span></div>
+      <div>Heap: <span id="xHeap">--</span></div>
+      <div>RSSI: <span id="xRssi">--</span> dBm</div>
+    </div>
+  </div>
+  <div class="cd">
+    <h3>Subject Progress</h3>
+    <div id="progBars"></div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ HISTORY ═══ -->
+<div id="p-hist" style="display:none">
+<div class="cd fi">
+  <h3>Event History</h3>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span id="hCount" style="color:var(--t2);font-size:.88em">Loading...</span>
+    <button class="btn btn-o" onclick="send('hist')" style="width:auto;padding:7px 14px;font-size:.82em">🔄 Refresh</button>
+  </div>
+  <div class="hlist" id="hList"><div style="text-align:center;padding:30px;color:var(--t2)">Waiting...</div></div>
+</div>
+</div>
+
+<!-- ═══ CONTROLS ═══ -->
+<div id="p-ctrl" style="display:none">
+<div class="cd fi">
+  <h3>Remote Controls</h3>
+  <div class="cg" style="margin-top:14px">
+    <button class="btn btn-a" onclick="send('status')">📊 Get Status</button>
+    <button class="btn btn-g" onclick="doSync()">🕐 Sync Time (NTP)</button>
+    <button class="btn btn-y" onclick="send('buzz')">🔔 Buzz</button>
+    <button class="btn btn-p" onclick="send('play',{t:34})">🎵 Play Chime</button>
+    <button class="btn btn-r" onclick="doReset()">🗑️ Reset Timers</button>
+    <button class="btn btn-o" onclick="send('hist')">📜 Get History</button>
+  </div>
+</div>
+<div class="cd fi" style="margin-top:14px">
+  <h3>Audio Test</h3>
+  <div class="cg" style="margin-top:10px">
+    <button class="btn btn-o" onclick="send('play',{t:1})">Hey!</button>
+    <button class="btn btn-o" onclick="send('play',{t:3})">BookBuddy</button>
+    <button class="btn btn-o" onclick="send('play',{t:5})">Time to Study</button>
+    <button class="btn btn-o" onclick="send('play',{t:31})">Good Job</button>
+    <button class="btn btn-o" onclick="send('play',{t:36})">I Miss You</button>
+    <button class="btn btn-o" onclick="send('play',{t:38})">Doing Amazing</button>
+    <button class="btn btn-o" onclick="send('play',{t:42})">So Proud</button>
+    <button class="btn btn-o" onclick="send('play',{t:43})">Take a Break</button>
+  </div>
+</div>
+<div class="cd fi" style="margin-top:14px">
+  <h3>OTA Firmware Update</h3>
+  <form id="otaF">
+    <input type="file" id="otaFile" accept=".bin" style="margin-bottom:10px;color:var(--t)">
+    <button type="submit" class="btn btn-y">📦 Upload Firmware</button>
+  </form>
+  <div id="otaP" style="display:none;margin-top:10px"><div class="pbar" style="height:12px"><div class="pfill" id="otaBar" style="width:0%;background:var(--y)"></div></div></div>
+</div>
+</div>
+
+<!-- ═══ SETTINGS ═══ -->
+<div id="p-sett" style="display:none">
+<div class="cd fi">
+  <h3>Device Settings</h3>
+  <div class="sr">
+    <div class="sl">Volume<small>Speaker (0-30)</small></div>
+    <div class="sw"><span id="vVal">22</span><input type="range" min="0" max="30" value="22" id="vSldr" oninput="document.getElementById('vVal').textContent=this.value;send('vol',{v:+this.value})"></div>
+  </div>
+  <div class="sr">
+    <div class="sl">Sound<small>Audio on/off</small></div>
+    <label class="tgl"><input type="checkbox" checked id="sndTgl" onchange="send('snd',{v:this.checked})"><span class="sldr"></span></label>
+  </div>
+  <div class="sr">
+    <div class="sl">Boot Calm<small>Minutes calm at startup</small></div>
+    <div class="sw"><span id="bcV">5</span> min<input type="range" min="1" max="30" value="5" id="bcS" oninput="document.getElementById('bcV').textContent=this.value"></div>
+  </div>
+  <div class="sr">
+    <div class="sl">Degrade Step<small>Minutes between stages</small></div>
+    <div class="sw"><span id="dsV">5</span> min<input type="range" min="1" max="30" value="5" id="dsS" oninput="document.getElementById('dsV').textContent=this.value"></div>
+  </div>
+  <div class="sr">
+    <div class="sl">Degrade Stages<small>Number of stages</small></div>
+    <div class="sw"><span id="dgV">5</span><input type="range" min="3" max="10" value="5" id="dgS" oninput="document.getElementById('dgV').textContent=this.value"></div>
+  </div>
+  <button class="btn btn-a" onclick="saveCfg()" style="margin-top:14px">💾 Save All Settings</button>
+</div>
+</div>
+
+<div class="ft">BookBuddy V1 · <span id="xIp">--</span> · <span id="xWs">Disconnected</span></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
-// ══════════════════════════════════════════
-//  WebSocket Connection Manager
-// ══════════════════════════════════════════
-let ws = null;
-let wsConnected = false;
-let reconnectTimer = null;
-let lastData = null;
-let pingInterval = null;
+let ws=null,connected=false,recon=null,hb=null;
 
-function connect() {
-  const host = location.hostname || 'bookbuddy.local';
-  const url = 'ws://' + host + '/ws';
-  console.log('Connecting to', url);
-
-  try {
-    ws = new WebSocket(url);
-  } catch(e) {
-    console.error('WS error:', e);
-    scheduleReconnect();
-    return;
-  }
-
-  ws.onopen = function() {
-    console.log('WS connected');
-    wsConnected = true;
-    updateConnectionUI(true);
-    clearTimeout(reconnectTimer);
-
-    // Heartbeat
-    clearInterval(pingInterval);
-    pingInterval = setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({cmd:'ping'}));
-      }
-    }, 15000);
-  };
-
-  ws.onmessage = function(evt) {
-    try {
-      const data = JSON.parse(evt.data);
-      if (data.cmd === 'pong') return;
-      if (data.history) {
-        renderHistory(data.history);
-        return;
-      }
-      if (data.cmd === 'ok' || data.cmd === 'error') {
-        showToast(data.cmd === 'ok' ? 'Command OK: ' + (data.action||'') : 'Error: ' + (data.msg||''),
-                  data.cmd === 'ok' ? 'success' : 'error');
-        return;
-      }
-      lastData = data;
-      updateDashboard(data);
-    } catch(e) {
-      console.error('Parse error:', e);
-    }
-  };
-
-  ws.onclose = function() {
-    console.log('WS closed');
-    wsConnected = false;
-    updateConnectionUI(false);
-    clearInterval(pingInterval);
-    scheduleReconnect();
-  };
-
-  ws.onerror = function(e) {
-    console.error('WS error:', e);
-    ws.close();
-  };
+function connect(){
+  const h=location.hostname||'bookbuddy.local';
+  try{ws=new WebSocket('ws://'+h+'/ws')}catch(e){sched();return}
+  ws.onopen=()=>{connected=true;ui(true);clearTimeout(recon);
+    hb=setInterval(()=>{if(ws&&ws.readyState===1)ws.send('{"cmd":"ping"}')},12000)};
+  ws.onmessage=e=>{try{const d=JSON.parse(e.data);
+    if(d.cmd==='pong')return;
+    if(d.hist){renderH(d.hist);return}
+    if(d.cmd==='ok'||d.cmd==='err'){toast(d.cmd==='ok'?'✓ '+(d.act||'OK'):'✗ '+(d.msg||'Error'),d.cmd==='ok'?'ok':'er');return}
+    upd(d)}catch(x){}};
+  ws.onclose=()=>{connected=false;ui(false);clearInterval(hb);sched()};
+  ws.onerror=()=>ws.close();
+}
+function sched(){clearTimeout(recon);recon=setTimeout(connect,3000)}
+function send(c,x){if(!ws||ws.readyState!==1){toast('Not connected','er');return}ws.send(JSON.stringify({cmd:c,...x}))}
+function ui(on){
+  document.getElementById('badge').className='badge '+(on?'on':'off');
+  document.getElementById('connTxt').textContent=on?'Connected':'Reconnecting...';
+  document.getElementById('xWs').textContent='WS: '+(on?'Connected':'Disconnected');
 }
 
-function scheduleReconnect() {
-  clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(connect, 3000);
-}
-
-function sendCmd(cmd, extra) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    showToast('Not connected', 'error');
-    return;
-  }
-  const msg = {cmd, ...extra};
-  ws.send(JSON.stringify(msg));
-}
-
-function requestHistory() {
-  sendCmd('history');
-}
-
-// ══════════════════════════════════════════
-//  UI Updates
-// ══════════════════════════════════════════
-
-function updateConnectionUI(connected) {
-  const badge = document.getElementById('connBadge');
-  const text = document.getElementById('connText');
-  const footer = document.getElementById('wsStatus');
-
-  if (connected) {
-    badge.className = 'conn-badge online';
-    text.textContent = 'Connected';
-    footer.textContent = 'WebSocket: Connected';
-  } else {
-    badge.className = 'conn-badge offline';
-    text.textContent = 'Reconnecting...';
-    footer.textContent = 'WebSocket: Disconnected';
-  }
-}
-
-const EMOTION_MAP = {
-  'Neutral':    {face:'😐', color:'var(--text2)'},
-  'Calm':       {face:'😊', color:'var(--accent2)'},
-  'Happy':      {face:'😄', color:'var(--green)'},
-  'Proud':      {face:'🤩', color:'var(--amber)'},
-  'Very Proud': {face:'🥳', color:'var(--amber)'},
-  'Sad':        {face:'😟', color:'var(--amber)'},
-  'Very Sad':   {face:'😢', color:'var(--red)'},
-  'Reminder':   {face:'😤', color:'var(--red)'}
+const EM={
+  Calm:{f:'😊',c:'var(--a2)'},Content:{f:'🙂',c:'var(--a2)'},
+  Happy:{f:'😄',c:'var(--g)'},'Very Happy':{f:'😆',c:'var(--g)'},
+  Proud:{f:'🤩',c:'var(--y)'},Neutral:{f:'😐',c:'var(--t2)'},
+  Bored:{f:'😑',c:'var(--y)'},Sad:{f:'😟',c:'var(--y)'},
+  'Very Sad':{f:'😢',c:'var(--r)'},Pleading:{f:'🥺',c:'var(--r)'}
 };
+const SN=['Booting','Intro','Boot Calm','Active','Degrading','Overlay'];
 
-const STATE_NAMES = ['Booting','Intro','Boot Calm','Active','Calm Hold','Degrading','Overlay'];
-
-function updateDashboard(d) {
-  // Emotion
-  const emo = EMOTION_MAP[d.emotion] || {face:'❓', color:'var(--text2)'};
-  document.getElementById('emotionFace').textContent = emo.face;
-  document.getElementById('emotionName').textContent = d.emotion || '--';
-  document.getElementById('emotionName').style.color = emo.color;
-  document.getElementById('stateDetail').textContent = STATE_NAMES[d.state] || 'Unknown';
-
-  // Books count
-  document.getElementById('bookCountDisplay').textContent = d.booksPlaced + ' / 5';
-  document.getElementById('bookProgress').style.width = (d.booksPlaced / 5 * 100) + '%';
-
-  // Total study
-  document.getElementById('totalStudy').textContent = formatTime(d.totalStudySeconds || 0);
-
-  // Clock
-  if (d.time && d.time !== 'N/A') {
-    const t = d.time.split('T')[1] || d.time;
-    document.getElementById('clockDisplay').textContent = '🕐 ' + t;
-  }
-
-  // Books
-  if (d.books) {
-    let progressHTML = '';
-    const maxSec = Math.max(...d.books.map(b => b.seconds), 1);
-
-    d.books.forEach((b, i) => {
-      const card = document.getElementById('book-' + i);
-      const dot = document.getElementById('dot-' + i);
-      const time = document.getElementById('time-' + i);
-      const status = document.getElementById('status-' + i);
-
-      if (card) {
-        card.className = 'card book-card' + (b.present ? ' active' : '');
-      }
-      if (dot) {
-        dot.className = 'status-dot ' + (b.present ? 'on' : 'off');
-      }
-      if (time) {
-        time.textContent = formatTime(b.seconds);
-      }
-      if (status) {
-        status.textContent = b.present ? '📗 Studying' : '📕 Not placed';
-      }
-
-      // Progress bars
-      const pct = maxSec > 0 ? (b.seconds / maxSec * 100) : 0;
-      const colors = ['var(--accent)','var(--green)','var(--amber)','var(--purple)','var(--red)'];
-      progressHTML += '<div style="margin-bottom:8px">';
-      progressHTML += '<div style="display:flex;justify-content:space-between;font-size:.85em;margin-bottom:2px">';
-      progressHTML += '<span>' + b.name + '</span><span>' + formatTime(b.seconds) + '</span></div>';
-      progressHTML += '<div class="progress-bar" style="height:8px"><div class="progress-fill" style="width:' + pct + '%;background:' + colors[i] + '"></div></div>';
-      progressHTML += '</div>';
+function upd(d){
+  const em=EM[d.emo]||{f:'❓',c:'var(--t2)'};
+  el('eFace').textContent=em.f;
+  el('eName').textContent=d.emo||'--';
+  el('eName').style.color=em.c;
+  el('eState').textContent=(SN[d.state]||'?')+(d.degrade>0?' (stage '+d.degrade+')':'');
+  el('sCount').textContent=d.studying+' / 5';
+  el('sProg').style.width=(d.studying/5*100)+'%';
+  el('tStudy').textContent=fmt(d.total||0);
+  if(d.time&&d.time!=='N/A'){const t=d.time.split('T')[1]||d.time;el('clock').textContent='🕐 '+t}
+  
+  if(d.books){
+    let pb='';const mx=Math.max(...d.books.map(b=>b.t),1);
+    const cs=['var(--a)','var(--g)','var(--y)','var(--p)','var(--r)'];
+    d.books.forEach((b,i)=>{
+      const c=el('b'+i),dot=el('d'+i),tm=el('t'+i),st=el('s'+i);
+      if(c)c.className='cd bk'+(b.s?' act':'');
+      if(dot)dot.className='sdot '+(b.s?'on':'off');
+      if(tm)tm.textContent=fmt(b.t);
+      if(st)st.textContent=b.s?'📖 Studying':'📚 On rack';
+      const pct=mx>0?(b.t/mx*100):0;
+      pb+='<div style="margin-bottom:7px"><div style="display:flex;justify-content:space-between;font-size:.82em;margin-bottom:2px"><span>'+b.n+'</span><span>'+fmt(b.t)+'</span></div><div class="pbar"><div class="pfill" style="width:'+pct+'%;background:'+cs[i]+'"></div></div></div>';
     });
-
-    document.getElementById('progressBars').innerHTML = progressHTML;
+    el('progBars').innerHTML=pb;
   }
-
-  // Hardware
-  if (d.hardware) {
-    setHwDot('hw-rtc', d.hardware.rtc);
-    setHwDot('hw-dfplayer', d.hardware.dfplayer);
-    setHwDot('hw-wifi', d.hardware.wifi);
+  
+  if(d.hw){hw('hRtc',d.hw.rtc);hw('hDf',d.hw.df);hw('hWifi',d.hw.wifi);hw('hNtp',d.hw.ntp);
+    if(d.hw.rssi!=null)el('xRssi').textContent=d.hw.rssi}
+  if(d.fw)el('xFw').textContent=d.fw;
+  if(d.up!=null)el('xUp').textContent=fmt(d.up);
+  if(d.heap!=null)el('xHeap').textContent=(d.heap/1024).toFixed(1)+' KB';
+  el('xIp').textContent=location.hostname;
+  
+  if(d.cfg){
+    el('vSldr').value=d.cfg.vol;el('vVal').textContent=d.cfg.vol;
+    el('sndTgl').checked=d.cfg.snd;
+    el('bcS').value=d.cfg.bcalm/60000;el('bcV').textContent=d.cfg.bcalm/60000;
+    el('dsS').value=d.cfg.dstep/60000;el('dsV').textContent=d.cfg.dstep/60000;
+    el('dgS').value=d.cfg.dstages;el('dgV').textContent=d.cfg.dstages;
   }
-
-  // System info
-  if (d.firmware) document.getElementById('fwVersion').textContent = d.firmware;
-  if (d.uptime != null) document.getElementById('uptime').textContent = formatTime(d.uptime);
-  if (d.freeHeap != null) document.getElementById('freeHeap').textContent = (d.freeHeap / 1024).toFixed(1) + ' KB';
-
-  // Settings sync
-  if (d.settings) {
-    document.getElementById('volumeSlider').value = d.settings.volume;
-    document.getElementById('volVal').textContent = d.settings.volume;
-    document.getElementById('soundToggle').checked = d.settings.soundEnabled;
-    document.getElementById('bootCalmSlider').value = d.settings.bootCalmMs / 60000;
-    document.getElementById('bcVal').textContent = d.settings.bootCalmMs / 60000;
-    document.getElementById('calmHoldSlider').value = d.settings.calmHoldMs / 60000;
-    document.getElementById('chVal').textContent = d.settings.calmHoldMs / 60000;
-    document.getElementById('degradeSlider').value = d.settings.degradeIntervalMs / 60000;
-    document.getElementById('diVal').textContent = d.settings.degradeIntervalMs / 60000;
-  }
-
-  // IP
-  document.getElementById('ipDisplay').textContent = location.hostname;
 }
 
-function setHwDot(id, ok) {
-  const el = document.getElementById(id);
-  if (el) el.className = 'hw-dot ' + (ok ? 'ok' : 'fail');
-}
+function hw(id,ok){const e=document.getElementById(id);if(e)e.className='hwd '+(ok?'ok':'no')}
 
-function renderHistory(items) {
-  const list = document.getElementById('historyList');
-  const count = document.getElementById('historyCount');
-  count.textContent = items.length + ' events';
-
-  if (!items.length) {
-    list.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text2)">No events yet</div>';
-    return;
-  }
-
-  const icons = {
-    'BOOT':'🚀','PLACED':'📗','REMOVED':'📕','ALL_PLACED':'⭐',
-    'TOUCH':'👆','REMINDER':'⏰','RESET':'🗑️','SYNC':'🕐'
-  };
-
-  let html = '';
-  items.reverse().forEach(e => {
-    const icon = icons[e.event] || '📋';
-    const d = new Date(e.epoch * 1000);
-    const timeStr = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
-    html += '<div class="history-item">';
-    html += '<span class="h-icon">' + icon + '</span>';
-    html += '<span class="h-time">' + timeStr + '</span>';
-    html += '<span class="h-event">' + e.event + '</span>';
-    html += '<span class="h-detail">' + (e.detail||'') + '</span>';
-    html += '</div>';
+function renderH(items){
+  el('hCount').textContent=items.length+' events';
+  if(!items.length){el('hList').innerHTML='<div style="text-align:center;padding:30px;color:var(--t2)">No events</div>';return}
+  const ic={BOOT:'🚀',STUDYING:'📖',DONE:'✅',ALL_STUDY:'⭐',TOUCH:'👆',REMINDER:'⏰',RESET:'🗑️',NTP_SYNC:'🕐',SYNC:'🕐'};
+  let h='';items.slice().reverse().forEach(e=>{
+    const d=new Date(e.t*1000);const ts=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+    h+='<div class="hi"><span class="ic">'+(ic[e.e]||'📋')+'</span><span class="ht">'+ts+'</span><span class="he">'+e.e+'</span><span class="hd">'+(e.d||'')+'</span></div>';
   });
-
-  list.innerHTML = html;
+  el('hList').innerHTML=h;
 }
 
-// ══════════════════════════════════════════
-//  Actions
-// ══════════════════════════════════════════
-
-function syncTime() {
-  const epoch = Math.floor(Date.now() / 1000);
-  sendCmd('syncTime', {epoch});
-  showToast('Time sync sent', 'info');
+function doSync(){send('syncTime');toast('Syncing via NTP...','in')}
+function doReset(){if(confirm('Reset all study timers?'))send('reset')}
+function saveCfg(){
+  send('cfg',{bcalm:+el('bcS').value*60000,dstep:+el('dsS').value*60000,dstages:+el('dgS').value});
+  toast('Settings saved!','ok');
 }
 
-function confirmReset() {
-  if (confirm('Reset all study timers to zero?')) {
-    sendCmd('resetTimers');
-  }
+function tab(n){
+  ['dash','hist','ctrl','sett'].forEach(t=>el('p-'+t).style.display=t===n?'':'none');
+  document.querySelectorAll('.tb').forEach(e=>e.classList.remove('on'));
+  event.target.classList.add('on');
+  if(n==='hist')send('hist');
 }
 
-function updateVolume(val) {
-  document.getElementById('volVal').textContent = val;
-  sendCmd('setVolume', {value: parseInt(val)});
-}
-
-function toggleSound(enabled) {
-  sendCmd('setSound', {value: enabled});
-}
-
-function saveSettingsToDevice() {
-  const bc = parseInt(document.getElementById('bootCalmSlider').value) * 60000;
-  const ch = parseInt(document.getElementById('calmHoldSlider').value) * 60000;
-  const di = parseInt(document.getElementById('degradeSlider').value) * 60000;
-  sendCmd('updateSettings', {bootCalmMs:bc, calmHoldMs:ch, degradeIntervalMs:di});
-  showToast('Settings saved!', 'success');
-}
-
-// ══════════════════════════════════════════
-//  Tabs
-// ══════════════════════════════════════════
-
-function switchTab(name) {
-  ['dashboard','history','controls','settings'].forEach(t => {
-    document.getElementById('tab-'+t).style.display = t === name ? '' : 'none';
-  });
-  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-  event.target.classList.add('active');
-
-  if (name === 'history') requestHistory();
-}
-
-// ══════════════════════════════════════════
-//  OTA
-// ══════════════════════════════════════════
-
-document.getElementById('otaForm').addEventListener('submit', function(e) {
-  e.preventDefault();
-  const file = document.getElementById('otaFile').files[0];
-  if (!file) { showToast('Select a .bin file', 'error'); return; }
-
-  const xhr = new XMLHttpRequest();
-  const form = new FormData();
-  form.append('update', file);
-
-  document.getElementById('otaProgress').style.display = 'block';
-
-  xhr.upload.onprogress = function(ev) {
-    if (ev.lengthComputable) {
-      const pct = (ev.loaded / ev.total * 100).toFixed(0);
-      document.getElementById('otaBar').style.width = pct + '%';
-    }
-  };
-
-  xhr.onload = function() {
-    if (xhr.status === 200) {
-      showToast('Update complete! Rebooting...', 'success');
-      setTimeout(() => location.reload(), 5000);
-    } else {
-      showToast('Update failed', 'error');
-    }
-  };
-
-  xhr.open('POST', '/update');
-  xhr.send(form);
+document.getElementById('otaF').addEventListener('submit',function(e){
+  e.preventDefault();const f=document.getElementById('otaFile').files[0];
+  if(!f){toast('Select .bin file','er');return}
+  const x=new XMLHttpRequest(),fd=new FormData();fd.append('update',f);
+  el('otaP').style.display='block';
+  x.upload.onprogress=e=>{if(e.lengthComputable)el('otaBar').style.width=(e.loaded/e.total*100).toFixed(0)+'%'};
+  x.onload=()=>{toast(x.status===200?'Done! Rebooting...':'Failed',x.status===200?'ok':'er');if(x.status===200)setTimeout(()=>location.reload(),5000)};
+  x.open('POST','/update');x.send(fd);
 });
 
-// ══════════════════════════════════════════
-//  Helpers
-// ══════════════════════════════════════════
+function el(id){return document.getElementById(id)}
+function fmt(s){if(s==null||s<0)return'--';const h=Math.floor(s/3600),m=Math.floor(s%3600/60),sc=s%60;return h>0?h+'h '+m+'m':m>0?m+'m '+sc+'s':sc+'s'}
+function toast(m,t){const e=el('toast');e.textContent=m;e.className='toast '+t+' show';setTimeout(()=>e.className='toast',3000)}
 
-function formatTime(secs) {
-  if (secs == null || secs < 0) return '--';
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  if (h > 0) return h + 'h ' + m + 'm';
-  if (m > 0) return m + 'm ' + s + 's';
-  return s + 's';
-}
+setInterval(()=>fetch('/api/info').then(r=>r.json()).then(d=>{if(d.rssi!=null)el('xRssi').textContent=d.rssi}).catch(()=>{}),10000);
 
-function showToast(msg, type) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast ' + type + ' show';
-  setTimeout(() => t.className = 'toast', 3000);
-}
-
-// ══════════════════════════════════════════
-//  RSSI polling (via REST)
-// ══════════════════════════════════════════
-setInterval(() => {
-  fetch('/api/info').then(r=>r.json()).then(d => {
-    if (d.rssi != null) document.getElementById('rssi').textContent = d.rssi + ' dBm';
-  }).catch(()=>{});
-}, 10000);
-
-// ══════════════════════════════════════════
-//  Init
-// ══════════════════════════════════════════
 connect();
 </script>
 </body>
 </html>
-)rawhtml";
+)rawliteral";
 
   req->send(200, "text/html", html);
 }
